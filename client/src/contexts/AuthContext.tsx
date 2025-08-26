@@ -51,10 +51,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const logout = async () => {
     try {
-      await api.logout();
+      // Clear user state first
       setUser(null);
+      
+      // Call backend logout (this will redirect to Microsoft logout)
+      window.location.href = '/api/auth/logout';
     } catch (error) {
       console.error('Logout error:', error);
+      // Even if API call fails, clear local state and redirect to Microsoft logout
+      setUser(null);
+      window.location.href = '/api/auth/logout';
     }
   };
 

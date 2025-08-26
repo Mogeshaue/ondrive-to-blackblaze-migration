@@ -91,7 +91,8 @@ app.get('/api/auth/login', (req, res) => {
     `response_type=code&` +
     `redirect_uri=${encodeURIComponent('http://localhost:3000/auth/microsoft/callback')}&` +
     `scope=${encodeURIComponent('offline_access Files.Read.All')}&` +
-    `response_mode=query`;
+    `response_mode=query&` +
+    `prompt=select_account`;
   
   res.json({ authUrl });
 });
@@ -174,8 +175,25 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 });
 
 app.get('/api/auth/logout', (req, res) => {
-  req.session.destroy();
-  res.json({ message: 'Logged out successfully' });
+  // Clear user tokens from memory
+  if (req.session.user && req.session.user.id) {
+    userTokens.delete(req.session.user.id);
+  }
+  
+  // Destroy session
+  req.session.destroy((err) => {
+    if (err) {
+      console.error('Session destruction error:', err);
+      return res.status(500).json({ error: 'Logout failed' });
+    }
+    
+    // Clear session cookie
+    res.clearCookie('connect.sid');
+    
+    // Redirect to Microsoft logout URL to clear OAuth cache
+    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent('http://localhost:5173/login?logout=success&t=' + Date.now())}`;
+    res.redirect(msLogoutUrl);
+  });
 });
 
 // Token refresh function

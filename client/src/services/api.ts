@@ -19,7 +19,11 @@ export const api = {
   },
 
   logout: async (): Promise<void> => {
-    await axios.get(`${API_BASE}/auth/logout`);
+    // Don't follow redirects, just make the request
+    await axios.get(`${API_BASE}/auth/logout`, {
+      maxRedirects: 0,
+      validateStatus: (status) => status < 400
+    });
   },
 
   // OneDrive operations

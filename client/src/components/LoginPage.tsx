@@ -13,12 +13,18 @@ import { useAuth } from '../contexts/AuthContext';
 const LoginPage: React.FC = () => {
   const { login } = useAuth();
   const [error, setError] = React.useState<string | null>(null);
+  const [success, setSuccess] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     // Check for error in URL params
     const urlParams = new URLSearchParams(window.location.search);
     const errorParam = urlParams.get('error');
-    if (errorParam) {
+    const logoutParam = urlParams.get('logout');
+    
+    if (logoutParam === 'success') {
+      setSuccess('Successfully logged out. You can now sign in with a different account.');
+      setError(null);
+    } else if (errorParam) {
       switch (errorParam) {
         case 'oauth_error':
           setError('OAuth authentication error. Please try again.');
@@ -69,6 +75,12 @@ const LoginPage: React.FC = () => {
           {error && (
             <Alert severity="error" sx={{ mb: 3 }}>
               {error}
+            </Alert>
+          )}
+
+          {success && (
+            <Alert severity="success" sx={{ mb: 3 }}>
+              {success}
             </Alert>
           )}
 
