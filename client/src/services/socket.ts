@@ -1,0 +1,80 @@
+import { io, Socket } from 'socket.io-client';
+
+class SocketService {
+  private socket: Socket | null = null;
+
+  connect(): Socket {
+    if (!this.socket) {
+      this.socket = io('/', {
+        withCredentials: true,
+        transports: ['websocket', 'polling']
+      });
+
+      this.socket.on('connect', () => {
+        console.log('Connected to server');
+      });
+
+      this.socket.on('disconnect', () => {
+        console.log('Disconnected from server');
+      });
+
+      this.socket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error);
+      });
+    }
+
+    return this.socket;
+  }
+
+  disconnect(): void {
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+  }
+
+  joinJob(jobId: string): void {
+    if (this.socket) {
+      this.socket.emit('join-job', jobId);
+    }
+  }
+
+  onProgress(callback: (data: { jobId: string; progress: number }) => void): void {
+    if (this.socket) {
+      this.socket.on('progress', callback);
+    }
+  }
+
+  onLog(callback: (data: { jobId: string; message: string }) => void): void {
+    if (this.socket) {
+      this.socket.on('log', callback);
+    }
+  }
+
+  onDone(callback: (data: { jobId: string; status: string; code?: number; error?: string }) => void): void {
+    if (this.socket) {
+      this.socket.on('done', callback);
+    }
+  }
+
+  offProgress(): void {
+    if (this.socket) {
+      this.socket.off('progress');
+    }
+  }
+
+  offLog(): void {
+    if (this.socket) {
+      this.socket.off('log');
+    }
+  }
+
+  offDone(): void {
+    if (this.socket) {
+      this.socket.off('done');
+    }
+  }
+}
+
+export const socketService = new SocketService();
+export default socketService;
