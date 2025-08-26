@@ -101,12 +101,12 @@ app.get('/auth/microsoft/callback', async (req, res) => {
   
   if (error) {
     console.error('OAuth error:', error);
-    return res.redirect('/login?error=oauth_error');
+    return res.redirect('http://localhost:5173/login?error=oauth_error');
   }
   
-  if (!code) {
-    return res.redirect('/login?error=no_code');
-  }
+      if (!code) {
+      return res.redirect('http://localhost:5173/login?error=no_code');
+    }
 
   try {
     console.log('Exchanging code for tokens...');
@@ -162,10 +162,10 @@ app.get('/auth/microsoft/callback', async (req, res) => {
     });
 
     console.log('Authentication successful, redirecting to dashboard');
-    res.redirect('/');
+    res.redirect('http://localhost:5173/');
   } catch (error) {
     console.error('OAuth callback error:', error.response?.data || error.message);
-    res.redirect('/login?error=auth_failed');
+    res.redirect('http://localhost:5173/login?error=auth_failed');
   }
 });
 
