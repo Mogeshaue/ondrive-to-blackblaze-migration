@@ -232,7 +232,12 @@ app.get('/api/onedrive/list', requireAuth, async (req, res) => {
       return res.status(401).json({ error: 'Invalid access token' });
     }
 
-    const response = await axios.get(`https://graph.microsoft.com/v1.0/me/drive/root:${path}:/children`, {
+    // Fix the OneDrive API URL - use correct format
+    const apiUrl = path === '/' 
+      ? 'https://graph.microsoft.com/v1.0/me/drive/root/children'
+      : `https://graph.microsoft.com/v1.0/me/drive/root:${path}:/children`;
+    
+    const response = await axios.get(apiUrl, {
       headers: {
         'Authorization': `Bearer ${accessToken}`
       }
@@ -241,7 +246,7 @@ app.get('/api/onedrive/list', requireAuth, async (req, res) => {
     const items = response.data.value.map(item => ({
       id: item.id,
       name: item.name,
-      path: (item.parentReference?.path || '/') + '/' + item.name,
+      path: item.parentReference?.path ? `${item.parentReference.path}/${item.name}` : `/${item.name}`,
       type: item.folder ? 'folder' : 'file',
       size: item.size,
       lastModified: item.lastModifiedDateTime
@@ -272,7 +277,7 @@ app.get('/api/onedrive/search', requireAuth, async (req, res) => {
     const items = response.data.value.map(item => ({
       id: item.id,
       name: item.name,
-      path: item.parentReference?.path + '/' + item.name,
+      path: item.parentReference?.path ? `${item.parentReference.path}/${item.name}` : `/${item.name}`,
       type: item.folder ? 'folder' : 'file',
       size: item.size,
       lastModified: item.lastModifiedDateTime
