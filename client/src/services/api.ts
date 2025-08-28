@@ -42,20 +42,30 @@ export const api = {
   },
 
   // Migration operations
-  startMigration: async (selectedItems: OneDriveItem[]): Promise<LoginResponse> => {
+  startMigration: async (selectedItems: OneDriveItem[]): Promise<{ manifestId: string; status: string; message: string }> => {
     const response = await axios.post(`${API_BASE}/migrate`, {
       selectedItems
     });
     return response.data;
   },
 
-  getJobStatus: async (jobId: string): Promise<JobStatus> => {
-    const response = await axios.get(`${API_BASE}/migrate/${jobId}/status`);
+  getJobStatus: async (manifestId: string): Promise<JobStatus> => {
+    const response = await axios.get(`${API_BASE}/migrate/${manifestId}/status`);
+    return response.data;
+  },
+
+  getJobLogs: async (manifestId: string): Promise<{ logs: string }> => {
+    const response = await axios.get(`${API_BASE}/migrate/${manifestId}/logs`);
     return response.data;
   },
 
   getJobReport: async (jobId: string): Promise<JobReport> => {
     const response = await axios.get(`${API_BASE}/migrate/${jobId}/report`);
+    return response.data;
+  },
+
+  verifyMigration: async (jobId: string): Promise<any> => {
+    const response = await axios.post(`${API_BASE}/migrate/${jobId}/verify`);
     return response.data;
   }
 };

@@ -13,6 +13,14 @@ import {
   Chip,
   IconButton,
   Collapse,
+  Card,
+  CardContent,
+  Grid,
+  CircularProgress,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import {
   PlayArrow,
@@ -21,10 +29,18 @@ import {
   CloudUpload,
   CheckCircle,
   Error,
+  Warning,
+  Info,
+  Refresh,
+  Stop,
+  Download,
+  Upload,
+  Storage,
+  Speed,
+  Timer,
 } from '@mui/icons-material';
 import { OneDriveItem, JobStatus } from '../types';
 import api from '../services/api';
-import socketService from '../services/socket';
 
 interface MigrationPanelProps {
   selectedItems: OneDriveItem[];
@@ -39,39 +55,77 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
   const [logs, setLogs] = useState<string[]>([]);
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showRetryDialog, setShowRetryDialog] = useState(false);
+  const [migrationStats, setMigrationStats] = useState({
+    totalFiles: 0,
+    totalSize: 0,
+    transferredFiles: 0,
+    transferredSize: 0,
+    failedFiles: 0,
+    speed: '0 MB/s',
+    eta: '--',
+    startTime: null as Date | null,
+  });
 
   useEffect(() => {
-    // Connect to socket
-    socketService.connect();
-
-    // Set up event listeners
-    socketService.onProgress((data) => {
-      if (currentJob && data.jobId === currentJob.id) {
-        setCurrentJob(prev => prev ? { ...prev, progress: data.progress } : null);
-      }
-    });
-
-    socketService.onLog((data) => {
-      if (currentJob && data.jobId === currentJob.id) {
-        setLogs(prev => [...prev, data.message]);
-      }
-    });
-
-    socketService.onDone((data) => {
-      if (currentJob && data.jobId === currentJob.id) {
-        setCurrentJob(prev => prev ? { ...prev, status: data.status } : null);
-        if (data.status === 'completed') {
-          onClearSelection();
+    // Poll for job status updates
+    let pollInterval: NodeJS.Timeout;
+    
+    if (currentJob && currentJob.status !== 'completed' && currentJob.status !== 'failed') {
+      pollInterval = setInterval(async () => {
+        try {
+          const status = await api.getJobStatus(currentJob.id);
+          setCurrentJob(prev => prev ? { ...prev, ...status } : null);
+          
+          // Get logs
+          const logsResponse = await api.getJobLogs(currentJob.id);
+          if (logsResponse.logs) {
+            setLogs(logsResponse.logs.split('\n').filter(line => line.trim()));
+          }
+          
+          if (status.status === 'completed' || status.status === 'failed') {
+            clearInterval(pollInterval);
+          }
+        } catch (error) {
+          console.error('Failed to poll job status:', error);
         }
-      }
-    });
-
+      }, 2000); // Poll every 2 seconds
+    }
+    
     return () => {
-      socketService.offProgress();
-      socketService.offLog();
-      socketService.offDone();
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
     };
   }, [currentJob, onClearSelection]);
+
+  const updateMigrationStats = (message: string) => {
+    // Parse transfer statistics from rclone output
+    const transferMatch = message.match(/Transferred:\s*([\d.]+)\s*([KMGT]?B)/);
+    const speedMatch = message.match(/([\d.]+)\s*([KMGT]?B\/s)/);
+    const etaMatch = message.match(/ETA\s*([\dhms]+)/);
+    
+    if (transferMatch) {
+      setMigrationStats(prev => ({
+        ...prev,
+        transferredSize: parseFloat(transferMatch[1]) * (transferMatch[2] === 'KB' ? 1024 : transferMatch[2] === 'MB' ? 1024*1024 : transferMatch[2] === 'GB' ? 1024*1024*1024 : 1)
+      }));
+    }
+    
+    if (speedMatch) {
+      setMigrationStats(prev => ({
+        ...prev,
+        speed: `${speedMatch[1]} ${speedMatch[2]}`
+      }));
+    }
+    
+    if (etaMatch) {
+      setMigrationStats(prev => ({
+        ...prev,
+        eta: etaMatch[1]
+      }));
+    }
+  };
 
   const startMigration = async () => {
     if (selectedItems.length === 0) {
@@ -82,222 +136,283 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
     setError(null);
     setLogs([]);
     setLogsExpanded(true);
+    setMigrationStats(prev => ({
+      ...prev,
+      totalFiles: selectedItems.length,
+      totalSize: selectedItems.reduce((sum, item) => sum + (item.size || 0), 0),
+      transferredFiles: 0,
+      transferredSize: 0,
+      startTime: new Date(),
+    }));
 
     try {
+      console.log('Starting migration with items:', selectedItems);
       const response = await api.startMigration(selectedItems);
-      const jobId = response.jobId;
-
-      // Join the job room for real-time updates
-      socketService.joinJob(jobId);
+      const manifestId = response.manifestId;
+      console.log('Migration started with manifest ID:', manifestId);
 
       // Create initial job status
       const jobStatus: JobStatus = {
-        id: jobId,
-        status: 'starting',
+        id: manifestId,
+        status: response.status || 'starting',
         progress: 0,
         startTime: new Date(),
         logs: [],
       };
 
       setCurrentJob(jobStatus);
-    } catch (err) {
-      setError('Failed to start migration');
+    } catch (err: any) {
       console.error('Migration start error:', err);
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to start migration';
+      setError(errorMessage);
     }
   };
 
+  const verifyMigration = async () => {
+    if (!currentJob) return;
+    
+    try {
+      await api.verifyMigration(currentJob.id);
+      setLogs(prev => [...prev, 'Verification started...']);
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error || err.message || 'Failed to start verification';
+      setError(errorMessage);
+    }
+  };
 
+  const retryMigration = () => {
+    setShowRetryDialog(false);
+    setCurrentJob(null);
+    setLogs([]);
+    setError(null);
+    startMigration();
+  };
+
+  const stopMigration = () => {
+    // TODO: Implement stop functionality
+    setLogs(prev => [...prev, 'Stop requested (not implemented yet)']);
+  };
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'completed': return 'success';
+      case 'failed': return 'error';
+      case 'running': return 'info';
+      default: return 'default';
+    }
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'completed':
-        return <CheckCircle />;
-      case 'failed':
-        return <Error />;
-      case 'running':
-        return <CloudUpload />;
-      default:
-        return <CloudUpload />;
+      case 'completed': return <CheckCircle color="success" />;
+      case 'failed': return <Error color="error" />;
+      case 'running': return <CircularProgress size={20} />;
+      default: return <Info color="info" />;
     }
   };
 
-  const formatFileSize = (bytes?: number): string => {
-    if (!bytes) return '';
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
-  };
-
-  const totalSize = selectedItems.reduce((sum, item) => sum + (item.size || 0), 0);
-
   return (
-    <Paper elevation={1} sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <Box sx={{ p: 2, borderBottom: 1, borderColor: 'divider' }}>
-        <Typography variant="h6" gutterBottom>
+    <Paper elevation={3} sx={{ p: 3, mt: 2 }}>
+      <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
+        <Typography variant="h6" component="h2">
           Migration Control
         </Typography>
-        
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-          <Typography variant="body2" color="text.secondary">
-            {selectedItems.length} item(s) selected
-          </Typography>
-          <Chip
-            label={formatFileSize(totalSize)}
-            size="small"
-            variant="outlined"
-          />
-        </Box>
+        <Chip 
+          label={`${selectedItems.length} items selected`} 
+          color="primary" 
+          variant="outlined" 
+        />
+      </Box>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-
-        {currentJob && (
-          <Box sx={{ mb: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+      {/* Migration Status */}
+      {currentJob && (
+        <Card sx={{ mb: 2 }}>
+          <CardContent>
+            <Box display="flex" alignItems="center" gap={2} mb={2}>
               {getStatusIcon(currentJob.status)}
-              <Typography variant="body2" sx={{ ml: 1 }}>
-                Status: {currentJob.status}
+              <Typography variant="h6">
+                Migration {currentJob.status === 'running' ? 'In Progress' : currentJob.status}
               </Typography>
             </Box>
-            <LinearProgress
-              variant="determinate"
-              value={currentJob.progress}
-              sx={{ height: 8, borderRadius: 4 }}
+            
+            <LinearProgress 
+              variant="determinate" 
+              value={currentJob.progress} 
+              sx={{ mb: 2 }}
             />
-            <Typography variant="caption" color="text.secondary">
-              {currentJob.progress}% complete
+            
+            <Typography variant="body2" color="text.secondary">
+              Progress: {currentJob.progress}%
             </Typography>
-          </Box>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Migration Statistics */}
+      {currentJob && currentJob.status === 'running' && (
+        <Grid container spacing={2} sx={{ mb: 2 }}>
+          <Grid item xs={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Speed</Typography>
+                <Typography variant="h6">{migrationStats.speed}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">ETA</Typography>
+                <Typography variant="h6">{migrationStats.eta}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Transferred</Typography>
+                <Typography variant="h6">{formatBytes(migrationStats.transferredSize)}</Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid item xs={6} md={3}>
+            <Card>
+              <CardContent>
+                <Typography variant="body2" color="text.secondary">Duration</Typography>
+                <Typography variant="h6">
+                  {migrationStats.startTime ? 
+                    Math.floor((Date.now() - migrationStats.startTime.getTime()) / 1000) + 's' : 
+                    '--'
+                  }
+                </Typography>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      )}
+
+      {/* Action Buttons */}
+      <Box display="flex" gap={2} mb={2} flexWrap="wrap">
+        {!currentJob && (
+          <Button
+            variant="contained"
+            startIcon={<PlayArrow />}
+            onClick={startMigration}
+            disabled={selectedItems.length === 0}
+          >
+            Start Migration
+          </Button>
         )}
-
-        <Button
-          variant="contained"
-          fullWidth
-          startIcon={<PlayArrow />}
-          onClick={startMigration}
-          disabled={selectedItems.length === 0 || (currentJob?.status === 'running')}
-          sx={{ mb: 1 }}
-        >
-          Start Migration
-        </Button>
-
+        
+        {currentJob && currentJob.status === 'running' && (
+          <>
+            <Button
+              variant="outlined"
+              startIcon={<Stop />}
+              onClick={stopMigration}
+              color="warning"
+            >
+              Stop
+            </Button>
+          </>
+        )}
+        
+        {currentJob && currentJob.status === 'completed' && (
+          <Button
+            variant="outlined"
+            startIcon={<Refresh />}
+            onClick={verifyMigration}
+          >
+            Verify Migration
+          </Button>
+        )}
+        
+        {currentJob && currentJob.status === 'failed' && (
+          <Button
+            variant="contained"
+            startIcon={<Refresh />}
+            onClick={() => setShowRetryDialog(true)}
+            color="error"
+          >
+            Retry
+          </Button>
+        )}
+        
         <Button
           variant="outlined"
-          fullWidth
           onClick={onClearSelection}
-          disabled={selectedItems.length === 0}
         >
           Clear Selection
         </Button>
       </Box>
 
-      {/* Selected Items */}
-      <Box sx={{ flex: 1, overflow: 'auto' }}>
-        <Box sx={{ p: 2 }}>
-          <Typography variant="subtitle2" gutterBottom>
-            Selected Items:
-          </Typography>
-          
-          {selectedItems.length === 0 ? (
-            <Typography variant="body2" color="text.secondary">
-              No items selected
-            </Typography>
-          ) : (
-            <List dense>
-              {selectedItems.slice(0, 10).map((item) => (
-                <ListItem key={item.id} sx={{ px: 0 }}>
-                  <ListItemText
-                    primary={item.name}
-                    secondary={
-                      <Box>
-                        <Typography variant="caption" display="block">
-                          {item.type === 'file' ? 'File' : 'Folder'}
-                        </Typography>
-                        {item.size && (
-                          <Typography variant="caption" display="block">
-                            {formatFileSize(item.size)}
-                          </Typography>
-                        )}
-                      </Box>
-                    }
-                  />
-                </ListItem>
-              ))}
-              {selectedItems.length > 10 && (
-                <ListItem sx={{ px: 0 }}>
-                  <ListItemText
-                    primary={`... and ${selectedItems.length - 10} more items`}
-                    sx={{ fontStyle: 'italic' }}
-                  />
-                </ListItem>
-              )}
-            </List>
-          )}
-        </Box>
+      {/* Error Display */}
+      {error && (
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+      )}
 
-        {/* Logs */}
-        {currentJob && (
-          <>
-            <Divider />
-            <Box sx={{ p: 2 }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  cursor: 'pointer',
-                  mb: 1,
-                }}
-                onClick={() => setLogsExpanded(!logsExpanded)}
-              >
-                <Typography variant="subtitle2">
-                  Migration Logs
-                </Typography>
-                <IconButton size="small">
-                  {logsExpanded ? <ExpandLess /> : <ExpandMore />}
-                </IconButton>
-              </Box>
-
-              <Collapse in={logsExpanded}>
-                <Box
-                  sx={{
-                    maxHeight: 200,
-                    overflow: 'auto',
-                    backgroundColor: 'grey.50',
-                    borderRadius: 1,
-                    p: 1,
-                  }}
-                >
-                  {logs.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      No logs yet...
-                    </Typography>
-                  ) : (
-                    logs.map((log, index) => (
-                      <Typography
-                        key={index}
-                        variant="caption"
-                        component="div"
-                        sx={{
-                          fontFamily: 'monospace',
-                          fontSize: '0.75rem',
-                          mb: 0.5,
-                          wordBreak: 'break-word',
-                        }}
-                      >
-                        {log}
-                      </Typography>
-                    ))
-                  )}
-                </Box>
-              </Collapse>
+      {/* Logs */}
+      {logs.length > 0 && (
+        <Card>
+          <CardContent>
+            <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
+              <Typography variant="h6">Migration Logs</Typography>
+              <IconButton onClick={() => setLogsExpanded(!logsExpanded)}>
+                {logsExpanded ? <ExpandLess /> : <ExpandMore />}
+              </IconButton>
             </Box>
-          </>
-        )}
-      </Box>
+            
+            <Collapse in={logsExpanded}>
+              <Box 
+                sx={{ 
+                  maxHeight: 300, 
+                  overflow: 'auto', 
+                  bgcolor: 'grey.50', 
+                  p: 1, 
+                  borderRadius: 1,
+                  fontFamily: 'monospace',
+                  fontSize: '0.875rem'
+                }}
+              >
+                {logs.map((log, index) => (
+                  <Box key={index} sx={{ mb: 0.5 }}>
+                    <Typography 
+                      variant="body2" 
+                      color={log.includes('ERROR') ? 'error' : log.includes('✅') ? 'success' : 'text.primary'}
+                    >
+                      {log}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Collapse>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Retry Dialog */}
+      <Dialog open={showRetryDialog} onClose={() => setShowRetryDialog(false)}>
+        <DialogTitle>Retry Migration?</DialogTitle>
+        <DialogContent>
+          <Typography>
+            Do you want to retry the migration with the same files?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShowRetryDialog(false)}>Cancel</Button>
+          <Button onClick={retryMigration} variant="contained">Retry</Button>
+        </DialogActions>
+      </Dialog>
     </Paper>
   );
 };

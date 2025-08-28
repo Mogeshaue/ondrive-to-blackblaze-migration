@@ -5,7 +5,7 @@ class SocketService {
 
   connect(): Socket {
     if (!this.socket) {
-      this.socket = io('/', {
+      this.socket = io('http://localhost:3000', {
         withCredentials: true,
         transports: ['websocket', 'polling']
       });
@@ -35,7 +35,10 @@ class SocketService {
 
   joinJob(jobId: string): void {
     if (this.socket) {
+      console.log('Joining job room:', jobId);
       this.socket.emit('join-job', jobId);
+    } else {
+      console.error('Socket not connected, cannot join job');
     }
   }
 
@@ -57,6 +60,12 @@ class SocketService {
     }
   }
 
+  onUpdate(callback: (data: { jobId: string; message: string }) => void): void {
+    if (this.socket) {
+      this.socket.on('update', callback);
+    }
+  }
+
   offProgress(): void {
     if (this.socket) {
       this.socket.off('progress');
@@ -72,6 +81,12 @@ class SocketService {
   offDone(): void {
     if (this.socket) {
       this.socket.off('done');
+    }
+  }
+
+  offUpdate(): void {
+    if (this.socket) {
+      this.socket.off('update');
     }
   }
 }

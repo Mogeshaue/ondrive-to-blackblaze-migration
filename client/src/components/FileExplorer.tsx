@@ -239,7 +239,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                   <ListItemText
                     primary={item.name}
                     secondary={
-                      <Box>
+                      <>
                         {item.type === 'file' && item.size && (
                           <Typography variant="caption" display="block">
                             {formatFileSize(item.size)}
@@ -250,7 +250,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                             Modified: {formatDate(item.lastModified)}
                           </Typography>
                         )}
-                      </Box>
+                      </>
                     }
                   />
                 </ListItemButton>

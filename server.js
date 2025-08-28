@@ -10,6 +10,8 @@ const axios = require('axios');
 const { spawn } = require('child_process');
 const path = require('path');
 require('dotenv').config();
+const { storeUserToken, getValidAccessToken, getValidAccessTokenWithRefresh, refreshUserToken } = require('./server/services/tokenStorage');
+const { startMigration, getJobStatus, getAllJobs, stopJob, getJobLogs, testOneDriveConnection, testB2Connection, checkOneDriveApproval, validateTokenForMigration } = require('./server/migration/migrationService');
 
 const app = express();
 const server = createServer(app);
@@ -50,8 +52,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'client/dist')));
 
 // In-memory storage for jobs (in production, use Redis or database)
-const jobs = new Map();
-const userTokens = new Map();
+// Jobs are now managed by the migration service
 
 // Utility functions
 const encryptToken = (text) => {
@@ -155,12 +156,45 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       expires_at: Date.now() + (expires_in * 1000)
     };
 
-    // Store in memory for quick access
-    userTokens.set(user.id, {
-      access_token: encryptedAccessToken,
-      refresh_token: encryptedRefreshToken,
-      expires_at: Date.now() + (expires_in * 1000)
-    });
+    // Store in memory for quick access (handled by OneDrive service)
+
+    // Store tokens in our token storage service
+    console.log('=== Token Storage Debug ===');
+    console.log('User ID:', user.id);
+    console.log('Access token length:', access_token.length);
+    console.log('Refresh token length:', refresh_token.length);
+    console.log('Expires in:', expires_in, 'seconds');
+    
+    try {
+      storeUserToken(user.id, access_token, refresh_token, expires_in);
+      console.log('✅ Tokens stored successfully');
+    } catch (error) {
+      console.error('❌ Failed to store tokens:', error.message);
+    }
+
+    // Update rclone.conf with the access token
+    try {
+      const fs = require('fs');
+      const rcloneConfigPath = path.join(__dirname, 'rclone.conf');
+      let configContent = fs.readFileSync(rcloneConfigPath, 'utf8');
+      
+      // Replace the placeholder token with the real access token
+      configContent = configContent.replace(
+        /token = your_oauth_token_here/,
+        `token = ${access_token}`
+      );
+      
+      fs.writeFileSync(rcloneConfigPath, configContent);
+      console.log('Updated rclone.conf with access token');
+      
+      // Also update the user's rclone config
+      const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
+      fs.writeFileSync(userRcloneConfigPath, configContent);
+      console.log('Updated user rclone config with access token');
+      
+    } catch (error) {
+      console.error('Failed to update rclone config:', error);
+    }
 
     console.log('Authentication successful, redirecting to dashboard');
     res.redirect('http://localhost:5173/');
@@ -175,10 +209,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
 });
 
 app.get('/api/auth/logout', (req, res) => {
-  // Clear user tokens from memory
-  if (req.session.user && req.session.user.id) {
-    userTokens.delete(req.session.user.id);
-  }
+  // Clear user tokens from memory (handled by OneDrive service)
   
   // Destroy session
   req.session.destroy((err) => {
@@ -221,6 +252,30 @@ const refreshAccessToken = async (userId) => {
     userTokenData.access_token = encryptedAccessToken;
     userTokenData.expires_at = Date.now() + (expires_in * 1000);
     
+    // Update rclone.conf with new access token
+    try {
+      const fs = require('fs');
+      const rcloneConfigPath = path.join(__dirname, 'rclone.conf');
+      let configContent = fs.readFileSync(rcloneConfigPath, 'utf8');
+      
+      // Replace the old token with the new access token
+      configContent = configContent.replace(
+        /token = [^\n]+/,
+        `token = ${access_token}`
+      );
+      
+      fs.writeFileSync(rcloneConfigPath, configContent);
+      console.log('Updated rclone.conf with refreshed access token');
+      
+      // Also update the user's rclone config
+      const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
+      fs.writeFileSync(userRcloneConfigPath, configContent);
+      console.log('Updated user rclone config with refreshed access token');
+      
+    } catch (error) {
+      console.error('Failed to update rclone config with refreshed token:', error);
+    }
+    
     return access_token;
   } catch (error) {
     console.error('Token refresh failed:', error);
@@ -228,32 +283,43 @@ const refreshAccessToken = async (userId) => {
   }
 };
 
-// Get valid access token
-const getValidAccessToken = async (userId) => {
-  const userTokenData = userTokens.get(userId);
-  if (!userTokenData) return null;
-
-  if (Date.now() >= userTokenData.expires_at) {
-    return await refreshAccessToken(userId);
+// Get valid access token (wrapper for compatibility)
+const getValidAccessTokenWrapper = async (userId) => {
+  try {
+    return getValidAccessTokenWithRefresh(userId);
+  } catch (error) {
+    console.error('Failed to get access token:', error.message);
+    // Return null instead of throwing, so the API can handle it gracefully
+    return null;
   }
-
-  return decryptToken(userTokenData.access_token);
 };
 
 // OneDrive API endpoints
 app.get('/api/onedrive/list', requireAuth, async (req, res) => {
   try {
     const { path = '/' } = req.query;
-    const accessToken = await getValidAccessToken(req.session.user.id);
+    const accessToken = await getValidAccessTokenWrapper(req.session.user.id);
     
     if (!accessToken) {
       return res.status(401).json({ error: 'Invalid access token' });
     }
 
     // Fix the OneDrive API URL - use correct format
-    const apiUrl = path === '/' 
-      ? 'https://graph.microsoft.com/v1.0/me/drive/root/children'
-      : `https://graph.microsoft.com/v1.0/me/drive/root:${path}:/children`;
+    let apiUrl;
+    if (path === '/' || path === '/drive') {
+      apiUrl = 'https://graph.microsoft.com/v1.0/me/drive/root/children';
+    } else {
+      // Remove /drive/root: prefix if present and clean the path
+      let cleanPath = path;
+      if (cleanPath.startsWith('/drive/root:')) {
+        cleanPath = cleanPath.substring('/drive/root:'.length);
+      }
+      // Remove leading slash if present
+      if (cleanPath.startsWith('/')) {
+        cleanPath = cleanPath.substring(1);
+      }
+      apiUrl = `https://graph.microsoft.com/v1.0/me/drive/root:/${cleanPath}:/children`;
+    }
     
     const response = await axios.get(apiUrl, {
       headers: {
@@ -280,7 +346,7 @@ app.get('/api/onedrive/list', requireAuth, async (req, res) => {
 app.get('/api/onedrive/search', requireAuth, async (req, res) => {
   try {
     const { query } = req.query;
-    const accessToken = await getValidAccessToken(req.session.user.id);
+    const accessToken = await getValidAccessTokenWrapper(req.session.user.id);
     
     if (!accessToken) {
       return res.status(401).json({ error: 'Invalid access token' });
@@ -316,158 +382,197 @@ app.post('/api/migrate', requireAuth, async (req, res) => {
     const userEmail = req.session.user.email;
     const emailPrefix = userEmail.split('@')[0];
     
+    console.log('Migration request received:', {
+      userId,
+      userEmail,
+      emailPrefix,
+      selectedItemsCount: selectedItems?.length
+    });
+    
     if (!selectedItems || selectedItems.length === 0) {
       return res.status(400).json({ error: 'No items selected for migration' });
     }
 
-    const jobId = crypto.randomUUID();
-    const job = {
-      id: jobId,
-      userId,
-      userEmail,
-      selectedItems,
-      status: 'starting',
-      progress: 0,
-      startTime: new Date(),
-      logs: []
-    };
+    // Extract file paths from selected items
+    const filePaths = selectedItems.map(item => {
+      let path = item.path;
+      
+      // Remove leading slash if present
+      if (path.startsWith('/')) {
+        path = path.substring(1);
+      }
+      
+      // Remove /drive/root: prefix if present
+      if (path.startsWith('drive/root:')) {
+        path = path.substring('drive/root:'.length);
+      }
+      
+      // Remove leading slash again if present
+      if (path.startsWith('/')) {
+        path = path.substring(1);
+      }
+      
+      // Replace backslashes with forward slashes
+      path = path.replace(/\\/g, '/');
+      
+      console.log(`Processing path: "${item.path}" -> "${path}"`);
+      return path;
+    });
 
-    jobs.set(jobId, job);
-
-    // Start migration process
-    startMigration(jobId, selectedItems, emailPrefix);
-
-    res.json({ jobId, message: 'Migration started' });
+    // Start migration using new service
+    const result = await startMigration(userId, filePaths, emailPrefix);
+    
+    res.json({ 
+      jobId: result.manifestId, 
+      manifestId: result.manifestId,
+      status: result.status,
+      message: 'Migration started' 
+    });
   } catch (error) {
     console.error('Migration start error:', error);
-    res.status(500).json({ error: 'Failed to start migration' });
+    res.status(500).json({ error: 'Failed to start migration: ' + error.message });
   }
 });
 
-app.get('/api/migrate/:jobId/status', requireAuth, (req, res) => {
-  const { jobId } = req.params;
-  const job = jobs.get(jobId);
-  
-  if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
-
-  res.json({
-    id: job.id,
-    status: job.status,
-    progress: job.progress,
-    startTime: job.startTime,
-    endTime: job.endTime,
-    logs: job.logs.slice(-50) // Last 50 logs
-  });
-});
-
-app.get('/api/migrate/:jobId/report', requireAuth, (req, res) => {
-  const { jobId } = req.params;
-  const job = jobs.get(jobId);
-  
-  if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
-
-  res.json({
-    id: job.id,
-    status: job.status,
-    progress: job.progress,
-    startTime: job.startTime,
-    endTime: job.endTime,
-    selectedItems: job.selectedItems,
-    results: job.results || [],
-    logs: job.logs
-  });
-});
-
-// Migration process
-const startMigration = async (jobId, selectedItems, emailPrefix) => {
-  const job = jobs.get(jobId);
-  if (!job) return;
-
+// Job status endpoint
+app.get('/api/migrate/:manifestId/status', requireAuth, (req, res) => {
   try {
-    job.status = 'running';
-    job.logs.push(`Starting migration for ${selectedItems.length} items`);
+    const { manifestId } = req.params;
+    console.log(`🔍 Checking status for job: ${manifestId}`);
     
-    // Create manifest file
-    const manifestPath = `/tmp/manifest_${jobId}.txt`;
-    const manifestContent = selectedItems.map(item => item.path).join('\n');
-    require('fs').writeFileSync(manifestPath, manifestContent);
+    const job = getJobStatus(manifestId);
     
-    job.logs.push('Created manifest file with selected items');
+    if (!job) {
+      console.log(`❌ Job not found: ${manifestId}`);
+      return res.status(404).json({ error: 'Job not found' });
+    }
     
-    // Rclone command
-    const rclonePath = process.env.RCLONE_PATH || 'rclone';
-    const source = 'onedrive:/';
-    const destination = `b2:${process.env.B2_BUCKET_NAME}/users/${emailPrefix}/`;
+    console.log(`✅ Job found: ${manifestId} - Status: ${job.status}`);
     
-    const args = [
-      'copy',
-      '--files-from', manifestPath,
-      '--transfers', '4',
-      '--checkers', '8',
-      '--progress',
-      '--stats', '1s',
-      source,
-      destination
-    ];
-
-    job.logs.push(`Executing: ${rclonePath} ${args.join(' ')}`);
-    
-    const rcloneProcess = spawn(rclonePath, args);
-    
-    rcloneProcess.stdout.on('data', (data) => {
-      const output = data.toString();
-      job.logs.push(output.trim());
-      
-      // Parse progress
-      const progressMatch = output.match(/(\d+%)/);
-      if (progressMatch) {
-        job.progress = parseInt(progressMatch[1]);
-      }
-      
-      // Emit to connected clients
-      io.to(`jobs/${jobId}`).emit('log', { jobId, message: output.trim() });
-      io.to(`jobs/${jobId}`).emit('progress', { jobId, progress: job.progress });
+    res.json({
+      manifestId,
+      status: job.status,
+      startedAt: job.startedAt,
+      finishedAt: job.finishedAt,
+      exitCode: job.exitCode,
+      error: job.error
     });
-
-    rcloneProcess.stderr.on('data', (data) => {
-      const error = data.toString();
-      job.logs.push(`ERROR: ${error.trim()}`);
-      io.to(`jobs/${jobId}`).emit('log', { jobId, message: `ERROR: ${error.trim()}` });
-    });
-
-    rcloneProcess.on('close', (code) => {
-      job.endTime = new Date();
-      
-      if (code === 0) {
-        job.status = 'completed';
-        job.progress = 100;
-        job.logs.push('Migration completed successfully');
-        io.to(`jobs/${jobId}`).emit('done', { jobId, status: 'completed' });
-      } else {
-        job.status = 'failed';
-        job.logs.push(`Migration failed with code: ${code}`);
-        io.to(`jobs/${jobId}`).emit('done', { jobId, status: 'failed', code });
-      }
-      
-      // Clean up manifest file
-      try {
-        require('fs').unlinkSync(manifestPath);
-      } catch (e) {
-        console.error('Failed to delete manifest file:', e);
-      }
-    });
-
   } catch (error) {
-    job.status = 'failed';
-    job.logs.push(`Migration error: ${error.message}`);
-    job.endTime = new Date();
-    io.to(`jobs/${jobId}`).emit('done', { jobId, status: 'failed', error: error.message });
+    console.error('Job status error:', error);
+    res.status(500).json({ error: 'Failed to get job status', details: error.message });
   }
-};
+});
+
+// Job logs endpoint
+app.get('/api/migrate/:manifestId/logs', requireAuth, (req, res) => {
+  const { manifestId } = req.params;
+  const logs = getJobLogs(manifestId);
+  
+  if (logs === null) {
+    return res.status(404).json({ error: 'Logs not found' });
+  }
+  
+  res.json({ logs });
+});
+
+// Stop job endpoint
+app.post('/api/migrate/:manifestId/stop', requireAuth, (req, res) => {
+  const { manifestId } = req.params;
+  const stopped = stopJob(manifestId);
+  
+  if (stopped) {
+    res.json({ message: 'Job stopped successfully' });
+  } else {
+    res.status(404).json({ error: 'Job not found or already stopped' });
+  }
+});
+
+// Report endpoint (simplified for now)
+app.get('/api/migrate/:manifestId/report', requireAuth, (req, res) => {
+  const { manifestId } = req.params;
+  const job = getJobStatus(manifestId);
+  
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  res.json({
+    manifestId,
+    status: job.status,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt,
+    exitCode: job.exitCode,
+    error: job.error
+  });
+});
+
+// Test OneDrive connection endpoint
+app.post('/api/test/onedrive', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const result = await testOneDriveConnection(userId);
+    res.json(result);
+  } catch (error) {
+    console.error('OneDrive connection test failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Test B2 connection endpoint
+app.post('/api/test/b2', requireAuth, async (req, res) => {
+  try {
+    const result = await testB2Connection();
+    res.json(result);
+  } catch (error) {
+    console.error('B2 connection test failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Check OneDrive approval endpoint
+app.post('/api/test/approval', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    const result = await checkOneDriveApproval(userId);
+    res.json(result);
+  } catch (error) {
+    console.error('Approval check failed:', error);
+    res.status(500).json({ approved: false, error: error.message });
+  }
+});
+
+// Validate token endpoint
+app.post('/api/test/token', requireAuth, async (req, res) => {
+  try {
+    const userId = req.session.user.id;
+    await validateTokenForMigration(userId);
+    res.json({ success: true, message: 'Token is valid' });
+  } catch (error) {
+    console.error('Token validation failed:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Verification endpoint (simplified for now)
+app.post('/api/migrate/:manifestId/verify', requireAuth, async (req, res) => {
+  const { manifestId } = req.params;
+  const job = getJobStatus(manifestId);
+  
+  if (!job) {
+    return res.status(404).json({ error: 'Job not found' });
+  }
+
+  if (job.status !== 'completed') {
+    return res.status(400).json({ error: 'Migration must be completed before verification' });
+  }
+
+  res.json({ 
+    success: true, 
+    message: 'Verification endpoint - to be implemented with new rclone config' 
+  });
+});
+
+// Migration process is now handled by the migration service
 
 // WebSocket connection handling
 io.on('connection', (socket) => {

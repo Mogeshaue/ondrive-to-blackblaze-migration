@@ -8,9 +8,10 @@ client_secret = your_microsoft_client_secret
 token = your_oauth_token_here
 drive_type = personal
 
-[b2]
-type = b2ea
-account = your_b2_account_id
-key = your_b2_application_key
-hard_delete = false
-versions = false
+[b2s3]
+type = s3
+provider = Backblaze
+access_key_id = your_b2_key_id
+secret_access_key = your_b2_application_key
+endpoint = s3.us-west-002.backblazeb2.com
+acl = private
