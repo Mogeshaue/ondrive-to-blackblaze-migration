@@ -78,8 +78,38 @@ async function ensureRcloneRemotes(userId) {
       throw new Error('Rclone config file not found');
     }
     
+    // Get current valid access token
+    const accessToken = await getValidAccessTokenWithRefresh(userId);
+    
     // Read existing config
-    const configContent = fs.readFileSync(configPath, 'utf8');
+    let configContent = fs.readFileSync(configPath, 'utf8');
+    
+    // Update the OneDrive token with the current valid token
+    // We need to construct the full token object that rclone expects
+    const tokens = loadTokens();
+    const tokenData = tokens[userId];
+    
+    if (tokenData) {
+      const tokenObject = {
+        access_token: accessToken,
+        token_type: "Bearer",
+        refresh_token: tokenData.refreshToken,
+        expiry: tokenData.expiresAt
+      };
+      
+      const tokenRegex = /token = \{.*?\}/s;
+      const newToken = `token = ${JSON.stringify(tokenObject)}`;
+      
+      if (tokenRegex.test(configContent)) {
+        configContent = configContent.replace(tokenRegex, newToken);
+        fs.writeFileSync(configPath, configContent);
+        console.log(`✅ Updated rclone config with fresh token`);
+      } else {
+        console.log(`⚠️ Could not find token in rclone config to update`);
+      }
+    } else {
+      console.log(`⚠️ No token data found for user ${userId}`);
+    }
     
     // Check if OneDrive remote exists
     if (!configContent.includes('[onedrive]')) {
@@ -194,21 +224,33 @@ async function startMigration(userId, items, dstPrefix = '') {
     // Step 10: Handle stdout
     child.stdout.on('data', (data) => {
       const output = data.toString();
-      logStream.write(output);
+      try {
+        logStream.write(output);
+      } catch (streamError) {
+        console.error(`[${manifestId}] Stream write error:`, streamError.message);
+      }
       console.log(`[${manifestId}] ${output.trim()}`);
     });
     
     // Step 11: Handle stderr
     child.stderr.on('data', (data) => {
       const output = data.toString();
-      logStream.write(output);
+      try {
+        logStream.write(output);
+      } catch (streamError) {
+        console.error(`[${manifestId}] Stream write error:`, streamError.message);
+      }
       console.log(`[${manifestId}] ERROR: ${output.trim()}`);
     });
     
     // Step 12: Handle process close
     child.on('close', (code) => {
-      logStream.write(`\nEXIT ${code}\n`);
-      logStream.end();
+      try {
+        logStream.write(`\nEXIT ${code}\n`);
+        logStream.end();
+      } catch (streamError) {
+        console.error(`[${manifestId}] Stream write error:`, streamError.message);
+      }
       
       const job = jobs.get(manifestId);
       if (job) {
@@ -230,8 +272,12 @@ async function startMigration(userId, items, dstPrefix = '') {
     
     // Step 13: Handle process error
     child.on('error', (error) => {
-      logStream.write(`\nPROCESS ERROR: ${error.message}\n`);
-      logStream.end();
+      try {
+        logStream.write(`\nPROCESS ERROR: ${error.message}\n`);
+        logStream.end();
+      } catch (streamError) {
+        console.error(`[${manifestId}] Stream write error:`, streamError.message);
+      }
       
       const job = jobs.get(manifestId);
       if (job) {

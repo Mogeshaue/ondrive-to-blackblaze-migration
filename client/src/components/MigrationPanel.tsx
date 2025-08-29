@@ -8,6 +8,7 @@ import {
   ListItem,
   ListItemText,
   Divider,
+  LinearProgress,
   Alert,
   Chip,
   IconButton,
@@ -203,14 +204,7 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'success';
-      case 'failed': return 'error';
-      case 'running': return 'info';
-      default: return 'default';
-    }
-  };
+
 
   const getStatusIcon = (status: string) => {
     switch (status) {
