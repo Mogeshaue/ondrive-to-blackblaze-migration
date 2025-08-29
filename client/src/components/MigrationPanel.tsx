@@ -5,10 +5,6 @@ import {
   Typography,
   Button,
   LinearProgress,
-  List,
-  ListItem,
-  ListItemText,
-  Divider,
   Alert,
   Chip,
   IconButton,
@@ -26,18 +22,11 @@ import {
   PlayArrow,
   ExpandMore,
   ExpandLess,
-  CloudUpload,
   CheckCircle,
   Error,
-  Warning,
   Info,
   Refresh,
   Stop,
-  Download,
-  Upload,
-  Storage,
-  Speed,
-  Timer,
 } from '@mui/icons-material';
 import { OneDriveItem, JobStatus } from '../types';
 import api from '../services/api';
@@ -99,33 +88,7 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
     };
   }, [currentJob, onClearSelection]);
 
-  const updateMigrationStats = (message: string) => {
-    // Parse transfer statistics from rclone output
-    const transferMatch = message.match(/Transferred:\s*([\d.]+)\s*([KMGT]?B)/);
-    const speedMatch = message.match(/([\d.]+)\s*([KMGT]?B\/s)/);
-    const etaMatch = message.match(/ETA\s*([\dhms]+)/);
-    
-    if (transferMatch) {
-      setMigrationStats(prev => ({
-        ...prev,
-        transferredSize: parseFloat(transferMatch[1]) * (transferMatch[2] === 'KB' ? 1024 : transferMatch[2] === 'MB' ? 1024*1024 : transferMatch[2] === 'GB' ? 1024*1024*1024 : 1)
-      }));
-    }
-    
-    if (speedMatch) {
-      setMigrationStats(prev => ({
-        ...prev,
-        speed: `${speedMatch[1]} ${speedMatch[2]}`
-      }));
-    }
-    
-    if (etaMatch) {
-      setMigrationStats(prev => ({
-        ...prev,
-        eta: etaMatch[1]
-      }));
-    }
-  };
+
 
   const startMigration = async () => {
     if (selectedItems.length === 0) {
@@ -201,14 +164,7 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'completed': return 'success';
-      case 'failed': return 'error';
-      case 'running': return 'info';
-      default: return 'default';
-    }
-  };
+
 
   const getStatusIcon = (status: string) => {
     switch (status) {

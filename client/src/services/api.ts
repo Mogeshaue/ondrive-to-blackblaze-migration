@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { User, OneDriveItem, JobStatus, JobReport, AuthResponse, LoginResponse } from '../types';
+import { User, OneDriveItem, JobStatus, JobReport, AuthResponse } from '../types';
 
 // Configure axios defaults
 axios.defaults.withCredentials = true;
