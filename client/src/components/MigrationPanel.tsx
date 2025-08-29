@@ -4,7 +4,6 @@ import {
   Paper,
   Typography,
   Button,
-  LinearProgress,
   List,
   ListItem,
   ListItemText,
@@ -26,18 +25,12 @@ import {
   PlayArrow,
   ExpandMore,
   ExpandLess,
-  CloudUpload,
   CheckCircle,
   Error,
-  Warning,
   Info,
   Refresh,
   Stop,
-  Download,
-  Upload,
-  Storage,
-  Speed,
-  Timer,
+  CloudDone,
 } from '@mui/icons-material';
 import { OneDriveItem, JobStatus } from '../types';
 import api from '../services/api';
@@ -45,6 +38,13 @@ import api from '../services/api';
 interface MigrationPanelProps {
   selectedItems: OneDriveItem[];
   onClearSelection: () => void;
+}
+
+interface MigratedFile {
+  name: string;
+  size: number;
+  status: 'success' | 'failed';
+  transferTime?: number;
 }
 
 const MigrationPanel: React.FC<MigrationPanelProps> = ({
@@ -56,16 +56,8 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
   const [logsExpanded, setLogsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showRetryDialog, setShowRetryDialog] = useState(false);
-  const [migrationStats, setMigrationStats] = useState({
-    totalFiles: 0,
-    totalSize: 0,
-    transferredFiles: 0,
-    transferredSize: 0,
-    failedFiles: 0,
-    speed: '0 MB/s',
-    eta: '--',
-    startTime: null as Date | null,
-  });
+  const [migratedFiles, setMigratedFiles] = useState<MigratedFile[]>([]);
+  const [isStarting, setIsStarting] = useState(false);
 
   useEffect(() => {
     // Poll for job status updates
@@ -80,7 +72,11 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
           // Get logs
           const logsResponse = await api.getJobLogs(currentJob.id);
           if (logsResponse.logs) {
-            setLogs(logsResponse.logs.split('\n').filter(line => line.trim()));
+            const newLogs = logsResponse.logs.split('\n').filter(line => line.trim());
+            setLogs(newLogs);
+            
+            // Parse migrated files from logs
+            parseMigratedFiles(newLogs);
           }
           
           if (status.status === 'completed' || status.status === 'failed') {
@@ -99,31 +95,36 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
     };
   }, [currentJob, onClearSelection]);
 
-  const updateMigrationStats = (message: string) => {
-    // Parse transfer statistics from rclone output
-    const transferMatch = message.match(/Transferred:\s*([\d.]+)\s*([KMGT]?B)/);
-    const speedMatch = message.match(/([\d.]+)\s*([KMGT]?B\/s)/);
-    const etaMatch = message.match(/ETA\s*([\dhms]+)/);
+  const parseMigratedFiles = (logLines: string[]) => {
+    const files: MigratedFile[] = [];
     
-    if (transferMatch) {
-      setMigrationStats(prev => ({
-        ...prev,
-        transferredSize: parseFloat(transferMatch[1]) * (transferMatch[2] === 'KB' ? 1024 : transferMatch[2] === 'MB' ? 1024*1024 : transferMatch[2] === 'GB' ? 1024*1024*1024 : 1)
-      }));
-    }
+    logLines.forEach(line => {
+      // Look for successful file transfers in rclone output
+      if (line.includes('Transferred:') && line.includes('100%')) {
+        // Extract filename from the line
+        const filenameMatch = line.match(/\*\s+(.+?):\s+\d+%\/[\d.]+[KMGT]?iB/);
+        if (filenameMatch) {
+          const filename = filenameMatch[1].trim();
+          // Find the original file size from selectedItems
+          const originalFile = selectedItems.find(item => item.name === filename);
+          
+          files.push({
+            name: filename,
+            size: originalFile?.size || 0,
+            status: 'success',
+            transferTime: Date.now(), // Approximate transfer time
+          });
+        }
+      }
+    });
     
-    if (speedMatch) {
-      setMigrationStats(prev => ({
-        ...prev,
-        speed: `${speedMatch[1]} ${speedMatch[2]}`
-      }));
-    }
-    
-    if (etaMatch) {
-      setMigrationStats(prev => ({
-        ...prev,
-        eta: etaMatch[1]
-      }));
+    if (files.length > 0) {
+      setMigratedFiles(prev => {
+        // Merge with existing files, avoiding duplicates
+        const existingNames = new Set(prev.map(f => f.name));
+        const newFiles = files.filter(f => !existingNames.has(f.name));
+        return [...prev, ...newFiles];
+      });
     }
   };
 
@@ -133,17 +134,15 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
       return;
     }
 
+    if (isStarting) {
+      return; // Prevent double-clicking
+    }
+
+    setIsStarting(true);
     setError(null);
     setLogs([]);
+    setMigratedFiles([]);
     setLogsExpanded(true);
-    setMigrationStats(prev => ({
-      ...prev,
-      totalFiles: selectedItems.length,
-      totalSize: selectedItems.reduce((sum, item) => sum + (item.size || 0), 0),
-      transferredFiles: 0,
-      transferredSize: 0,
-      startTime: new Date(),
-    }));
 
     try {
       console.log('Starting migration with items:', selectedItems);
@@ -165,6 +164,8 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
       console.error('Migration start error:', err);
       const errorMessage = err.response?.data?.error || err.message || 'Failed to start migration';
       setError(errorMessage);
+    } finally {
+      setIsStarting(false);
     }
   };
 
@@ -184,6 +185,7 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
     setShowRetryDialog(false);
     setCurrentJob(null);
     setLogs([]);
+    setMigratedFiles([]);
     setError(null);
     startMigration();
   };
@@ -243,60 +245,61 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
               </Typography>
             </Box>
             
-            <LinearProgress 
-              variant="determinate" 
-              value={currentJob.progress} 
-              sx={{ mb: 2 }}
-            />
-            
             <Typography variant="body2" color="text.secondary">
-              Progress: {currentJob.progress}%
+              Job ID: {currentJob.id}
             </Typography>
           </CardContent>
         </Card>
       )}
 
-      {/* Migration Statistics */}
-      {currentJob && currentJob.status === 'running' && (
-        <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Grid item xs={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">Speed</Typography>
-                <Typography variant="h6">{migrationStats.speed}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">ETA</Typography>
-                <Typography variant="h6">{migrationStats.eta}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">Transferred</Typography>
-                <Typography variant="h6">{formatBytes(migrationStats.transferredSize)}</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={3}>
-            <Card>
-              <CardContent>
-                <Typography variant="body2" color="text.secondary">Duration</Typography>
-                <Typography variant="h6">
-                  {migrationStats.startTime ? 
-                    Math.floor((Date.now() - migrationStats.startTime.getTime()) / 1000) + 's' : 
-                    '--'
-                  }
-                </Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+      {/* Files Migrated Section */}
+      {migratedFiles.length > 0 && (
+        <Card sx={{ mb: 2 }}>
+          <CardContent>
+            <Box display="flex" alignItems="center" gap={1} mb={2}>
+              <CloudDone color="success" />
+              <Typography variant="h6">
+                Files Migrated ({migratedFiles.length})
+              </Typography>
+            </Box>
+            
+            <List dense>
+              {migratedFiles.map((file, index) => (
+                <React.Fragment key={index}>
+                  <ListItem>
+                    <ListItemText
+                      primary={
+                        <Box display="flex" alignItems="center" justifyContent="space-between">
+                          <Typography variant="body1" sx={{ fontWeight: 500 }}>
+                            {file.name}
+                          </Typography>
+                          <Chip 
+                            label={file.status} 
+                            color={file.status === 'success' ? 'success' : 'error'}
+                            size="small"
+                          />
+                        </Box>
+                      }
+                      secondary={
+                        <Box display="flex" alignItems="center" justifyContent="space-between" mt={0.5}>
+                          <Typography variant="body2" color="text.secondary">
+                            Size: {formatBytes(file.size)}
+                          </Typography>
+                          {file.transferTime && (
+                            <Typography variant="body2" color="text.secondary">
+                              Completed: {new Date(file.transferTime).toLocaleTimeString()}
+                            </Typography>
+                          )}
+                        </Box>
+                      }
+                    />
+                  </ListItem>
+                  {index < migratedFiles.length - 1 && <Divider />}
+                </React.Fragment>
+              ))}
+            </List>
+          </CardContent>
+        </Card>
       )}
 
       {/* Action Buttons */}
@@ -304,11 +307,11 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
         {!currentJob && (
           <Button
             variant="contained"
-            startIcon={<PlayArrow />}
+            startIcon={isStarting ? <CircularProgress size={16} /> : <PlayArrow />}
             onClick={startMigration}
-            disabled={selectedItems.length === 0}
+            disabled={selectedItems.length === 0 || isStarting}
           >
-            Start Migration
+            {isStarting ? 'Starting...' : 'Start Migration'}
           </Button>
         )}
         

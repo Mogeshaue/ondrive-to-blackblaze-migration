@@ -9,7 +9,9 @@
     "build": "cd client && npm run build",
     "install-client": "cd client && npm install",
     "build-client": "cd client && npm run build",
-    "dev-client": "cd client && npm run dev"
+    "dev-client": "cd client && npm run dev",
+    "worker": "node server/workers/migrationWorker.js",
+    "dev-worker": "nodemon server/workers/migrationWorker.js"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -22,7 +24,13 @@
     "node-cron": "^3.0.2",
     "multer": "^1.4.5-lts.1",
     "helmet": "^7.0.0",
-    "express-rate-limit": "^6.10.0"
+    "express-rate-limit": "^6.10.0",
+    "bull": "^4.12.0",
+    "redis": "^4.6.10",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^4.7.1",
+    "uuid": "^9.0.1",
+    "node-cron": "^3.0.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

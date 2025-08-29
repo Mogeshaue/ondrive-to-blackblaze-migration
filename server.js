@@ -12,6 +12,7 @@ const path = require('path');
 require('dotenv').config();
 const { storeUserToken, getValidAccessToken, getValidAccessTokenWithRefresh, refreshUserToken } = require('./server/services/tokenStorage');
 const { startMigration, getJobStatus, getAllJobs, stopJob, getJobLogs, testOneDriveConnection, testB2Connection, checkOneDriveApproval, validateTokenForMigration } = require('./server/migration/migrationService');
+const tokenManager = require('./server/services/tokenManager');
 
 const app = express();
 const server = createServer(app);
@@ -593,8 +594,30 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'client/dist/index.html'));
 });
 
+// Start the server
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`OAuth redirect URI: http://localhost:3000/auth/microsoft/callback`);
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  
+  // Start the token manager service
+  console.log('🔧 Starting Token Manager Service...');
+  tokenManager.start();
+  
+  console.log('✅ OneDrive to B2 Migration Server is ready!');
+  console.log(`   - Frontend: http://localhost:5173`);
+  console.log(`   - Backend: http://localhost:${PORT}`);
+  console.log(`   - Token Manager: Active`);
+});
+
+// Graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n🛑 Shutting down server...');
+  tokenManager.stop();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n🛑 Shutting down server...');
+  tokenManager.stop();
+  process.exit(0);
 });
