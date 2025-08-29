@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # Redis service for job queue
+  redis:
+    image: redis:7-alpine
+    container_name: c2c-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+
+  # Main application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: c2c-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - RCLONE_PATH=/usr/local/bin/rclone
+      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./data:/app/data
+      - rclone_config:/app/config
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Migration worker (separate process for handling migrations)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: c2c-worker
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - RCLONE_PATH=/usr/local/bin/rclone
+      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./data:/app/data
+      - rclone_config:/app/config
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["node", "server/workers/migrationWorker.js"]
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "migrationWorker.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  redis_data:
+    driver: local
+  rclone_config:
+    driver: local
+
+networks:
+  default:
+    driver: bridge

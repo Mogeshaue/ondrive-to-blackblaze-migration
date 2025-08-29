@@ -1,0 +1,45 @@
+# Development Dockerfile with hot reload
+FROM node:18-alpine
+
+# Install necessary system dependencies
+RUN apk add --no-cache \
+    curl \
+    unzip \
+    ca-certificates \
+    bash \
+    git
+
+# Install Rclone
+RUN curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip && \
+    unzip rclone-current-linux-amd64.zip && \
+    mv rclone-*-linux-amd64/rclone /usr/local/bin/ && \
+    chmod +x /usr/local/bin/rclone && \
+    rm -rf rclone-*
+
+WORKDIR /app
+
+# Install nodemon globally for development
+RUN npm install -g nodemon
+
+# Copy package files
+COPY package*.json ./
+
+# Install backend dependencies
+RUN npm install
+
+# Copy client package files and install dependencies
+COPY client/package*.json ./client/
+RUN cd client && npm install
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/config /app/data
+
+# Expose ports
+EXPOSE 3000 5173
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/health || exit 1
+
+# Start the application in development mode
+CMD ["npm", "run", "dev"]

@@ -1,0 +1,114 @@
+# Production Docker Compose for deployment
+version: '3.8'
+
+services:
+  # Redis service for job queue with persistence
+  redis:
+    image: redis:7-alpine
+    container_name: c2c-redis-prod
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/usr/local/etc/redis/redis.conf
+    command: redis-server /usr/local/etc/redis/redis.conf
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # Main application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+    container_name: c2c-app-prod
+    restart: always
+    ports:
+      - "80:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - REDIS_URL=redis://redis:6379
+      - RCLONE_PATH=/usr/local/bin/rclone
+      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+    env_file:
+      - .env.production
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./data:/app/data
+      - rclone_config:/app/config
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # Migration worker (separate process for handling migrations)
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
+    container_name: c2c-worker-prod
+    restart: always
+    environment:
+      - NODE_ENV=production
+      - REDIS_URL=redis://redis:6379
+      - RCLONE_PATH=/usr/local/bin/rclone
+      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+    env_file:
+      - .env.production
+    volumes:
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - ./data:/app/data
+      - rclone_config:/app/config
+    depends_on:
+      redis:
+        condition: service_healthy
+    command: ["node", "server/workers/migrationWorker.js"]
+    healthcheck:
+      test: ["CMD", "pgrep", "-f", "migrationWorker.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 1G
+
+volumes:
+  redis_data:
+    driver: local
+  rclone_config:
+    driver: local
+
+networks:
+  default:
+    driver: bridge

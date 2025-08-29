@@ -50,7 +50,11 @@ app.use(session({
 }));
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'client/dist')));
+
+// Serve static files only in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(__dirname, 'client/dist')));
+}
 
 // In-memory storage for jobs (in production, use Redis or database)
 // Jobs are now managed by the migration service
@@ -85,6 +89,16 @@ const requireAuth = (req, res, next) => {
   }
   next();
 };
+
+// Health check endpoint for Docker
+app.get('/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    version: process.env.npm_package_version || '1.0.0'
+  });
+});
 
 // Microsoft OAuth endpoints
 app.get('/api/auth/login', (req, res) => {
@@ -589,9 +603,17 @@ io.on('connection', (socket) => {
   });
 });
 
-// Serve React app for all other routes
+// Serve React app for all other routes (production only)
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+  if (process.env.NODE_ENV === 'production') {
+    res.sendFile(path.join(__dirname, 'client/dist/index.html'));
+  } else {
+    res.json({ 
+      message: 'API Server Running', 
+      frontend: 'http://localhost:5173',
+      backend: 'http://localhost:3000'
+    });
+  }
 });
 
 // Start the server

@@ -72,14 +72,78 @@ async function ensureRcloneRemotes(userId) {
   console.log(`🔧 Ensuring rclone remotes for user: ${userId}`);
   
   try {
-    const configPath = path.join(__dirname, '../data/rclone.conf');
+    const configPath = process.env.RCLONE_CONFIG_PATH || path.join(__dirname, '../../config/rclone.conf');
     
+    // Create config directory if it doesn't exist
+    const configDir = path.dirname(configPath);
+    if (!fs.existsSync(configDir)) {
+      fs.mkdirSync(configDir, { recursive: true });
+    }
+    
+    // Initialize config file if it doesn't exist
     if (!fs.existsSync(configPath)) {
-      throw new Error('Rclone config file not found');
+      const defaultConfig = `# Rclone configuration for OneDrive to Backblaze B2 Migration
+
+[onedrive]
+type = onedrive
+token = {"access_token":"","token_type":"Bearer","refresh_token":"","expiry":"2006-01-02T15:04:05Z"}
+drive_id = 
+drive_type = personal
+
+[b2]
+type = b2
+account = ${process.env.B2_APPLICATION_KEY_ID || 'your_b2_account_id_here'}
+key = ${process.env.B2_APPLICATION_KEY || 'your_b2_application_key_here'}
+endpoint = 
+`;
+      fs.writeFileSync(configPath, defaultConfig);
+      console.log(`✅ Created rclone config file at: ${configPath}`);
+    }
+    
+    // Always update B2 credentials from environment variables
+    let b2ConfigContent = fs.readFileSync(configPath, 'utf8');
+    
+    // Update B2 credentials if environment variables are available
+    if (process.env.B2_APPLICATION_KEY_ID && process.env.B2_APPLICATION_KEY) {
+      // Update account line
+      b2ConfigContent = b2ConfigContent.replace(
+        /account = .*/,
+        `account = ${process.env.B2_APPLICATION_KEY_ID}`
+      );
+      
+      // Update key line
+      b2ConfigContent = b2ConfigContent.replace(
+        /key = .*/,
+        `key = ${process.env.B2_APPLICATION_KEY}`
+      );
+      
+      fs.writeFileSync(configPath, b2ConfigContent);
+      console.log(`✅ Updated rclone config with B2 credentials`);
     }
     
     // Get current valid access token
     const accessToken = await getValidAccessTokenWithRefresh(userId);
+    
+    // Get drive information from Microsoft Graph API
+    let driveId = 'me';
+    let driveType = 'personal';
+    
+    try {
+      const driveResponse = await axios.get('https://graph.microsoft.com/v1.0/me/drive', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (driveResponse.data && driveResponse.data.id) {
+        driveId = driveResponse.data.id;
+        driveType = driveResponse.data.driveType || 'personal';
+        console.log(`✅ Retrieved drive info: ID=${driveId}, Type=${driveType}`);
+      }
+    } catch (error) {
+      console.log(`⚠️ Could not fetch drive info, using defaults: ${error.message}`);
+    }
     
     // Read existing config
     let configContent = fs.readFileSync(configPath, 'utf8');
@@ -102,8 +166,13 @@ async function ensureRcloneRemotes(userId) {
       
       if (tokenRegex.test(configContent)) {
         configContent = configContent.replace(tokenRegex, newToken);
+        
+        // Also update drive_id and drive_type
+        configContent = configContent.replace(/drive_id = .*/, `drive_id = ${driveId}`);
+        configContent = configContent.replace(/drive_type = .*/, `drive_type = ${driveType}`);
+        
         fs.writeFileSync(configPath, configContent);
-        console.log(`✅ Updated rclone config with fresh token`);
+        console.log(`✅ Updated rclone config with fresh token and drive info`);
       } else {
         console.log(`⚠️ Could not find token in rclone config to update`);
       }
@@ -177,7 +246,11 @@ async function startMigration(userId, items, dstPrefix = '') {
     console.log(`   Manifest file: ${manifestFile}`);
     
     // Step 5: Create log file
-    const logFile = path.join(__dirname, '../logs', `${manifestId}.log`);
+    const logsDir = path.join(__dirname, '../logs');
+    if (!fs.existsSync(logsDir)) {
+      fs.mkdirSync(logsDir, { recursive: true });
+    }
+    const logFile = path.join(logsDir, `${manifestId}.log`);
     const logStream = fs.createWriteStream(logFile, { flags: 'a' });
     
     // Step 6: Build destination
@@ -377,7 +450,7 @@ async function testB2Connection() {
   console.log(`🧪 Testing B2 connection`);
   
   try {
-    const configPath = path.join(__dirname, '../data/rclone.conf');
+    const configPath = process.env.RCLONE_CONFIG_PATH || path.join(__dirname, '../../config/rclone.conf');
     const rclonePath = process.env.RCLONE_PATH || 'rclone';
     
     const testOutput = require('child_process').execSync(
