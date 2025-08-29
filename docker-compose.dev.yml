@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # Redis service for development
+  redis:
+    image: redis:7-alpine
+    container_name: onedrive-redis-dev
+    restart: unless-stopped
+    volumes:
+      - redis_data_dev:/data
+      - ./redis.conf:/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    command: redis-server /etc/redis/redis.conf
+    networks:
+      - onedrive_network_dev
+
+  # Main application service for development
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: onedrive-app-dev
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=development
+    env_file:
+      - .env.local
+    ports:
+      - "3000:3000"
+      - "5173:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/client/node_modules
+      - app_rclone_config_dev:/app/.config/rclone
+    depends_on:
+      - redis
+    networks:
+      - onedrive_network_dev
+    command: sh -c "npm run dev & cd client && npm run dev"
+
+volumes:
+  redis_data_dev:
+  app_rclone_config_dev:
+
+networks:
+  onedrive_network_dev:
+    driver: bridge

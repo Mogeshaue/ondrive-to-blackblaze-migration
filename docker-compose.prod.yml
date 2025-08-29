@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # Redis service for both environments
+  redis:
+    image: redis:7-alpine
+    container_name: onedrive-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+      - ./redis.conf:/etc/redis/redis.conf
+    ports:
+      - "6379:6379"
+    command: redis-server /etc/redis/redis.conf
+    networks:
+      - onedrive_network
+
+  # Main application service
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: onedrive-app-prod
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - .env.prod
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./config:/app/config
+      - app_rclone_config:/app/.config/rclone
+    depends_on:
+      - redis
+    networks:
+      - onedrive_network
+
+volumes:
+  redis_data:
+  app_rclone_config:
+
+networks:
+  onedrive_network:
+    driver: bridge

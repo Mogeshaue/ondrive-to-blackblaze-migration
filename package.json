@@ -11,7 +11,15 @@
     "build-client": "cd client && npm run build",
     "dev-client": "cd client && npm run dev",
     "worker": "node server/workers/migrationWorker.js",
-    "dev-worker": "nodemon server/workers/migrationWorker.js"
+    "dev-worker": "nodemon server/workers/migrationWorker.js",
+    "docker:dev": "docker-compose -f docker-compose.dev.yml up -d",
+    "docker:prod": "docker-compose -f docker-compose.prod.yml up -d",
+    "docker:stop:dev": "docker-compose -f docker-compose.dev.yml down",
+    "docker:stop:prod": "docker-compose -f docker-compose.prod.yml down",
+    "docker:logs:dev": "docker-compose -f docker-compose.dev.yml logs -f",
+    "docker:logs:prod": "docker-compose -f docker-compose.prod.yml logs -f",
+    "docker:build:dev": "docker-compose -f docker-compose.dev.yml build",
+    "docker:build:prod": "docker-compose -f docker-compose.prod.yml build --no-cache"
   },
   "dependencies": {
     "express": "^4.18.2",
@@ -29,8 +37,7 @@
     "redis": "^4.6.10",
     "winston": "^3.11.0",
     "winston-daily-rotate-file": "^4.7.1",
-    "uuid": "^9.0.1",
-    "node-cron": "^3.0.2"
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

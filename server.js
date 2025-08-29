@@ -10,6 +10,7 @@ const axios = require('axios');
 const { spawn } = require('child_process');
 const path = require('path');
 require('dotenv').config();
+const config = require('./config/configManager');
 const { storeUserToken, getValidAccessToken, getValidAccessTokenWithRefresh, refreshUserToken } = require('./server/services/tokenStorage');
 const { startMigration, getJobStatus, getAllJobs, stopJob, getJobLogs, testOneDriveConnection, testB2Connection, checkOneDriveApproval, validateTokenForMigration } = require('./server/migration/migrationService');
 const tokenManager = require('./server/services/tokenManager');
@@ -18,7 +19,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: config.getCorsOrigin(),
     methods: ["GET", "POST"]
   }
 });
@@ -26,7 +27,7 @@ const io = new Server(server, {
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: config.getCorsOrigin(),
   credentials: true
 }));
 
@@ -43,7 +44,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: config.isProduction(),
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000 // 24 hours
   }
@@ -86,16 +87,19 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
+// Health check endpoint for Docker
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    environment: config.getConfig().environment,
+    version: '1.0.0'
+  });
+});
+
 // Microsoft OAuth endpoints
 app.get('/api/auth/login', (req, res) => {
-  const authUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/authorize?` +
-    `client_id=${process.env.MS_CLIENT_ID}&` +
-    `response_type=code&` +
-    `redirect_uri=${encodeURIComponent('http://localhost:3000/auth/microsoft/callback')}&` +
-    `scope=${encodeURIComponent('offline_access Files.Read.All')}&` +
-    `response_mode=query&` +
-    `prompt=select_account`;
-  
+  const authUrl = config.getMicrosoftAuthUrl();
   res.json({ authUrl });
 });
 
@@ -119,7 +123,7 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       client_id: process.env.MS_CLIENT_ID,
       client_secret: process.env.MS_CLIENT_SECRET,
       code,
-      redirect_uri: 'http://localhost:3000/auth/microsoft/callback',
+      redirect_uri: config.getRedirectUri(),
       grant_type: 'authorization_code'
     }, {
       headers: {
@@ -223,7 +227,7 @@ app.get('/api/auth/logout', (req, res) => {
     res.clearCookie('connect.sid');
     
     // Redirect to Microsoft logout URL to clear OAuth cache
-    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent('http://localhost:5173/login?logout=success&t=' + Date.now())}`;
+    const msLogoutUrl = config.getMicrosoftLogoutUrl();
     res.redirect(msLogoutUrl);
   });
 });

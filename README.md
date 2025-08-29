@@ -11,15 +11,54 @@ A comprehensive web-based application that allows users to migrate selected file
 - **Rclone Integration**: Uses Rclone for reliable file transfers
 - **Modern UI**: Clean, responsive interface built with Material-UI
 - **Error Handling**: Comprehensive error handling and user feedback
+- **Docker Support**: Complete Docker setup for both development and production
 
 ## 📋 Prerequisites
 
-- Node.js 16+ and npm
-- Rclone (will be installed automatically by setup script)
+- **Docker & Docker Compose** (Recommended - easiest setup)
+- OR Node.js 16+ and npm (for manual setup)
 - Microsoft Azure App Registration
 - Backblaze B2 Account and Application Keys
 
-## 🛠️ Installation
+## 🐳 Quick Start with Docker (Recommended)
+
+### Interactive Setup
+```bash
+# For Windows
+quick-start.bat
+
+# For Linux/Mac
+chmod +x quick-start.sh
+./quick-start.sh
+```
+
+### Manual Docker Setup
+
+#### Local Development:
+```bash
+# Copy and configure environment
+cp env.template .env.local
+# Edit .env.local with your credentials
+
+# Start development environment
+docker-compose -f docker-compose.dev.yml up -d
+```
+
+#### Production Deployment:
+```bash
+# Configure production environment
+cp .env.prod .env.prod
+# Edit .env.prod with production settings
+
+# Deploy to production
+docker-compose -f docker-compose.prod.yml up -d
+```
+
+**🌐 Application URLs:**
+- **Development**: http://localhost:5173 (frontend), http://localhost:3000 (backend)
+- **Production**: http://10.1.76.210:3000
+
+## 🛠️ Manual Installation (Without Docker)
 
 ### 1. Clone the Repository
 
