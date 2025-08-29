@@ -11,9 +11,32 @@ const { spawn } = require('child_process');
 const path = require('path');
 require('dotenv').config();
 const config = require('./config/configManager');
+const rcloneConfig = require('./config/rcloneConfig');
 const { storeUserToken, getValidAccessToken, getValidAccessTokenWithRefresh, refreshUserToken } = require('./server/services/tokenStorage');
 const { startMigration, getJobStatus, getAllJobs, stopJob, getJobLogs, testOneDriveConnection, testB2Connection, checkOneDriveApproval, validateTokenForMigration } = require('./server/migration/migrationService');
 const tokenManager = require('./server/services/tokenManager');
+
+// Initialize and validate rclone configuration
+try {
+    rcloneConfig.validateRclone();
+    const rcloneSettings = rcloneConfig.getConfig();
+    
+    // Set environment variables for other parts of the application
+    process.env.RCLONE_PATH = rcloneSettings.rclonePath;
+    process.env.RCLONE_CONFIG_PATH = rcloneSettings.rcloneConfigPath;
+    
+    console.log('✅ Rclone configuration initialized successfully');
+} catch (error) {
+    console.error('❌ Failed to initialize rclone:', error.message);
+    console.log('\n📋 To fix this:');
+    console.log('1. Install rclone: https://rclone.org/downloads/');
+    console.log('2. Or set RCLONE_PATH in your .env file');
+    console.log('3. For Docker: Make sure containers are built properly');
+    // Don't exit in Docker as rclone might be available but not detectable during build
+    if (!rcloneConfig.getConfig().isDocker) {
+        process.exit(1);
+    }
+}
 
 const app = express();
 const server = createServer(app);

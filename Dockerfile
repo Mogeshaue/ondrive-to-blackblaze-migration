@@ -4,19 +4,20 @@ FROM node:18-alpine as client-builder
 # Set working directory for client build
 WORKDIR /app/client
 
-# Copy client package files
+# Copy client package files first for better caching
 COPY client/package*.json ./
 
-# Install client dependencies
-RUN npm ci --only=production
+# Install ALL client dependencies (including devDependencies for TypeScript)
+RUN npm ci
 
-# Copy client source
+# Copy client source code
 COPY client/ ./
 
-# Build client for production
-RUN npm run build
+    # Build client for production (using Vite which handles TypeScript internally)
+    RUN npm run build
 
-# Production stage
+    # Verify build output
+    RUN ls -la dist/ && echo "✅ Client build completed successfully"# Production stage
 FROM node:18-alpine
 
 # Install rclone
@@ -30,13 +31,11 @@ RUN wget https://downloads.rclone.org/v1.71.0/rclone-v1.71.0-linux-amd64.zip && 
 # Create app directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+    # Copy package files
+    COPY package*.json ./
 
-# Install only production dependencies
-RUN npm ci --only=production
-
-# Copy server source code
+    # Install only production dependencies
+    RUN npm ci --omit=dev# Copy server source code
 COPY server/ ./server/
 COPY *.js ./
 COPY config/ ./config/
