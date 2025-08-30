@@ -8,14 +8,12 @@ import {
   ListItem,
   ListItemText,
   Divider,
-  LinearProgress,
   Alert,
   Chip,
   IconButton,
   Collapse,
   Card,
   CardContent,
-  Grid,
   CircularProgress,
   Dialog,
   DialogTitle,
@@ -62,7 +60,7 @@ const MigrationPanel: React.FC<MigrationPanelProps> = ({
 
   useEffect(() => {
     // Poll for job status updates
-    let pollInterval: NodeJS.Timeout;
+    let pollInterval: ReturnType<typeof setInterval>;
     
     if (currentJob && currentJob.status !== 'completed' && currentJob.status !== 'failed') {
       pollInterval = setInterval(async () => {

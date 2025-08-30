@@ -1,11 +1,31 @@
 import { io, Socket } from 'socket.io-client';
 
+// Get backend URL from environment or default to relative URL in development
+const getBackendUrl = () => {
+  // In development with Docker Compose, use proxy via relative path
+  if (import.meta.env.DEV) {
+    return window.location.origin;  // Let the proxy handle it
+  }
+  
+  if (import.meta.env.VITE_BACKEND_URL) {
+    return import.meta.env.VITE_BACKEND_URL;
+  }
+  
+  // In production, use the same origin as the frontend
+  if (import.meta.env.PROD) {
+    return window.location.origin;
+  }
+  
+  // Default for development
+  return 'http://localhost:3000';
+};
+
 class SocketService {
   private socket: Socket | null = null;
 
   connect(): Socket {
     if (!this.socket) {
-      this.socket = io('http://localhost:3000', {
+      this.socket = io(getBackendUrl(), {
         withCredentials: true,
         transports: ['websocket', 'polling']
       });
