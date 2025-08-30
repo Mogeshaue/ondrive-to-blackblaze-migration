@@ -72,10 +72,10 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
+    secure: process.env.NODE_ENV === 'production' && process.env.HTTPS === 'true', // Only use secure in production with HTTPS
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // For cross-origin in production
+    sameSite: process.env.NODE_ENV === 'production' ? 'lax' : 'lax' // Use lax for better compatibility
   }
 }));
 
@@ -114,9 +114,17 @@ const decryptToken = (text) => {
 
 // Authentication middleware
 const requireAuth = (req, res, next) => {
+  console.log('=== Auth Check ===');
+  console.log('Session ID:', req.sessionID);
+  console.log('Session User:', req.session.user);
+  console.log('Session exists:', !!req.session);
+  console.log('Cookies:', req.headers.cookie);
+  
   if (!req.session.user) {
+    console.log('No user in session, authentication required');
     return res.status(401).json({ error: 'Authentication required' });
   }
+  console.log('User authenticated:', req.session.user.displayName);
   next();
 };
 
@@ -201,6 +209,20 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       expires_at: Date.now() + (expires_in * 1000)
     };
 
+    console.log('=== Session Debug ===');
+    console.log('Session ID:', req.sessionID);
+    console.log('Session User:', req.session.user);
+    console.log('Cookie settings:', req.session.cookie);
+    
+    // Save session explicitly
+    req.session.save((err) => {
+      if (err) {
+        console.error('Session save error:', err);
+      } else {
+        console.log('Session saved successfully');
+      }
+    });
+
     // Store in memory for quick access (handled by OneDrive service)
 
     // Store tokens in our token storage service
@@ -240,7 +262,36 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       }
       
       if (!rcloneConfigPath) {
-        throw new Error('rclone.conf not found in any expected location');
+        // If we still can't find it, create a default config
+        console.warn('rclone.conf not found in any expected location, creating default config...');
+        rcloneConfigPath = '/app/config/rclone.conf';
+        
+        // Ensure the config directory exists
+        const configDir = path.dirname(rcloneConfigPath);
+        if (!fs.existsSync(configDir)) {
+          fs.mkdirSync(configDir, { recursive: true });
+        }
+        
+        // Create a basic rclone config if it doesn't exist
+        if (!fs.existsSync(rcloneConfigPath)) {
+          const defaultConfig = `# Rclone configuration for OneDrive to Backblaze B2 Migration
+# This file will be automatically updated with tokens during migration
+
+[onedrive]
+type = onedrive
+token = your_oauth_token_here
+drive_id = 
+drive_type = business
+
+[b2]
+type = b2
+account = 
+key = 
+endpoint = 
+`;
+          fs.writeFileSync(rcloneConfigPath, defaultConfig);
+          console.log(`Created default rclone config at: ${rcloneConfigPath}`);
+        }
       }
       
       console.log(`Using rclone config at: ${rcloneConfigPath}`);
