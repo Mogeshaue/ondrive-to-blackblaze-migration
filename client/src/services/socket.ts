@@ -5,9 +5,15 @@ class SocketService {
 
   connect(): Socket {
     if (!this.socket) {
-      this.socket = io('http://localhost:3000', {
+      // Use the current origin (domain) for socket connection
+      // In production this will be files.iqubekct.ac.in
+      // In development this will be localhost:5173 (with proxy)
+      const socketUrl = window.location.origin;
+      
+      this.socket = io(socketUrl, {
         withCredentials: true,
-        transports: ['websocket', 'polling']
+        transports: ['websocket', 'polling'],
+        path: '/socket.io/'
       });
 
       this.socket.on('connect', () => {

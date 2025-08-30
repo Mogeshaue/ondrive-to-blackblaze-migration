@@ -1,0 +1,144 @@
+version: '3.8'
+
+services:
+  # Redis service for session storage and job queues
+  redis:
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-c2c}_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Backend service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ${COMPOSE_PROJECT_NAME:-c2c}_backend
+    restart: unless-stopped
+    environment:
+      # Microsoft OAuth Configuration
+      - MS_CLIENT_ID=${MS_CLIENT_ID}
+      - MS_CLIENT_SECRET=${MS_CLIENT_SECRET}
+      - MS_TENANT_ID=${MS_TENANT_ID}
+      - MS_REDIRECT_URI=${BASE_URL}/auth/microsoft/callback
+      
+      # Backblaze B2 Configuration
+      - B2_APPLICATION_KEY_ID=${B2_APPLICATION_KEY_ID}
+      - B2_APPLICATION_KEY=${B2_APPLICATION_KEY}
+      - B2_BUCKET_NAME=${B2_BUCKET_NAME}
+      
+      # Application Configuration
+      - PORT=3000
+      - NODE_ENV=production
+      - SESSION_SECRET=${SESSION_SECRET}
+      - BASE_URL=${BASE_URL}
+      
+      # Redis Configuration
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      
+      # Rclone Configuration
+      - RCLONE_PATH=/usr/bin/rclone
+      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+      
+      # Security
+      - CORS_ORIGIN=${BASE_URL}
+    volumes:
+      - ./config:/app/config:ro
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+      - ./server/data:/app/server/data
+      - ./server/logs:/app/server/logs
+    networks:
+      - app_network
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Frontend service with nginx
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: ${COMPOSE_PROJECT_NAME:-c2c}_frontend
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      # Mount SSL certificates (create these or use Let's Encrypt)
+      - ./ssl/certs:/etc/ssl/certs:ro
+      - ./ssl/private:/etc/ssl/private:ro
+      # Mount nginx logs
+      - frontend_logs:/var/log/nginx
+    networks:
+      - app_network
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Migration Worker (separate container for background jobs)
+  migration-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: ${COMPOSE_PROJECT_NAME:-c2c}_worker
+    restart: unless-stopped
+    command: ["node", "server/workers/migrationWorker.js"]
+    environment:
+      # Same environment as backend
+      - MS_CLIENT_ID=${MS_CLIENT_ID}
+      - MS_CLIENT_SECRET=${MS_CLIENT_SECRET}
+      - MS_TENANT_ID=${MS_TENANT_ID}
+      - B2_APPLICATION_KEY_ID=${B2_APPLICATION_KEY_ID}
+      - B2_APPLICATION_KEY=${B2_APPLICATION_KEY}
+      - B2_BUCKET_NAME=${B2_BUCKET_NAME}
+      - NODE_ENV=production
+      - SESSION_SECRET=${SESSION_SECRET}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379
+      - RCLONE_PATH=/usr/bin/rclone
+      - RCLONE_CONFIG_PATH=/app/config/rclone.conf
+    volumes:
+      - ./config:/app/config:ro
+      - backend_data:/app/data
+      - backend_logs:/app/logs
+      - ./server/data:/app/server/data
+      - ./server/logs:/app/server/logs
+    networks:
+      - app_network
+    depends_on:
+      redis:
+        condition: service_healthy
+
+networks:
+  app_network:
+    driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-c2c}_network
+
+volumes:
+  redis_data:
+    name: ${COMPOSE_PROJECT_NAME:-c2c}_redis_data
+  backend_data:
+    name: ${COMPOSE_PROJECT_NAME:-c2c}_backend_data
+  backend_logs:
+    name: ${COMPOSE_PROJECT_NAME:-c2c}_backend_logs
+  frontend_logs:
+    name: ${COMPOSE_PROJECT_NAME:-c2c}_frontend_logs
