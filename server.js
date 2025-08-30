@@ -14,19 +14,48 @@ const { storeUserToken, getValidAccessToken, getValidAccessTokenWithRefresh, ref
 const { startMigration, getJobStatus, getAllJobs, stopJob, getJobLogs, testOneDriveConnection, testB2Connection, checkOneDriveApproval, validateTokenForMigration } = require('./server/migration/migrationService');
 const tokenManager = require('./server/services/tokenManager');
 
+// Environment variables
+const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const CORS_ORIGIN = process.env.CORS_ORIGIN || FRONTEND_URL;
+
+// Allowed hosts for production
+const ALLOWED_HOSTS = [
+  'localhost',
+  '127.0.0.1',
+  '10.1.76.125',
+  'files.iqube.kct.ac.in'
+];
+
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: CORS_ORIGIN,
     methods: ["GET", "POST"]
   }
 });
 
 // Security middleware
 app.use(helmet());
+
+// Host validation middleware for production
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    const host = req.get('host');
+    const hostname = host ? host.split(':')[0] : '';
+    
+    if (!ALLOWED_HOSTS.includes(hostname)) {
+      console.warn(`Blocked request from unauthorized host: ${host}`);
+      return res.status(403).json({ error: 'Forbidden: Invalid host' });
+    }
+    
+    next();
+  });
+}
+
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: CORS_ORIGIN,
   credentials: true
 }));
 
@@ -43,9 +72,10 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.NODE_ENV === 'production', // Use HTTPS in production
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' // For cross-origin in production
   }
 }));
 
@@ -105,7 +135,7 @@ app.get('/api/auth/login', (req, res) => {
   const authUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/authorize?` +
     `client_id=${process.env.MS_CLIENT_ID}&` +
     `response_type=code&` +
-    `redirect_uri=${encodeURIComponent('http://localhost:3000/auth/microsoft/callback')}&` +
+    `redirect_uri=${encodeURIComponent(process.env.MS_REDIRECT_URI || `${BASE_URL}/auth/microsoft/callback`)}&` +
     `scope=${encodeURIComponent('offline_access Files.Read.All')}&` +
     `response_mode=query&` +
     `prompt=select_account`;
@@ -118,11 +148,11 @@ app.get('/auth/microsoft/callback', async (req, res) => {
   
   if (error) {
     console.error('OAuth error:', error);
-    return res.redirect('http://localhost:5173/login?error=oauth_error');
+    return res.redirect(`${FRONTEND_URL}/login?error=oauth_error`);
   }
   
       if (!code) {
-      return res.redirect('http://localhost:5173/login?error=no_code');
+      return res.redirect(`${FRONTEND_URL}/login?error=no_code`);
     }
 
   try {
@@ -133,7 +163,7 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       client_id: process.env.MS_CLIENT_ID,
       client_secret: process.env.MS_CLIENT_SECRET,
       code,
-      redirect_uri: 'http://localhost:3000/auth/microsoft/callback',
+      redirect_uri: process.env.MS_REDIRECT_URI || `${BASE_URL}/auth/microsoft/callback`,
       grant_type: 'authorization_code'
     }, {
       headers: {
@@ -212,10 +242,10 @@ app.get('/auth/microsoft/callback', async (req, res) => {
     }
 
     console.log('Authentication successful, redirecting to dashboard');
-    res.redirect('http://localhost:5173/');
+    res.redirect(`${FRONTEND_URL}/`);
   } catch (error) {
     console.error('OAuth callback error:', error.response?.data || error.message);
-    res.redirect('http://localhost:5173/login?error=auth_failed');
+    res.redirect(`${FRONTEND_URL}/login?error=auth_failed`);
   }
 });
 
@@ -237,7 +267,7 @@ app.get('/api/auth/logout', (req, res) => {
     res.clearCookie('connect.sid');
     
     // Redirect to Microsoft logout URL to clear OAuth cache
-    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent('http://localhost:5173/login?logout=success&t=' + Date.now())}`;
+    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(`${FRONTEND_URL}/login?logout=success&t=${Date.now()}`)}`;
     res.redirect(msLogoutUrl);
   });
 });
@@ -610,8 +640,8 @@ app.get('*', (req, res) => {
   } else {
     res.json({ 
       message: 'API Server Running', 
-      frontend: 'http://localhost:5173',
-      backend: 'http://localhost:3000'
+      frontend: FRONTEND_URL,
+      backend: BASE_URL
     });
   }
 });
@@ -626,8 +656,8 @@ app.listen(PORT, () => {
   tokenManager.start();
   
   console.log('✅ OneDrive to B2 Migration Server is ready!');
-  console.log(`   - Frontend: http://localhost:5173`);
-  console.log(`   - Backend: http://localhost:${PORT}`);
+  console.log(`   - Frontend: ${FRONTEND_URL}`);
+  console.log(`   - Backend: ${BASE_URL}`);
   console.log(`   - Token Manager: Active`);
 });
 
