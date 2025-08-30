@@ -1,5 +1,4 @@
 # Production Docker Compose for deployment
-version: '3.8'
 
 services:
   # Redis service for job queue with persistence
