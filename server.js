@@ -220,7 +220,30 @@ app.get('/auth/microsoft/callback', async (req, res) => {
     // Update rclone.conf with the access token
     try {
       const fs = require('fs');
-      const rcloneConfigPath = path.join(__dirname, 'rclone.conf');
+      // Use RCLONE_CONFIG_PATH environment variable if available, otherwise check multiple locations
+      let rcloneConfigPath = process.env.RCLONE_CONFIG_PATH;
+      
+      if (!rcloneConfigPath || !fs.existsSync(rcloneConfigPath)) {
+        const possiblePaths = [
+          path.join(__dirname, 'config', 'rclone.conf'),
+          path.join(__dirname, 'rclone.conf'),
+          '/app/config/rclone.conf',
+          '/app/rclone.conf'
+        ];
+        
+        for (const configPath of possiblePaths) {
+          if (fs.existsSync(configPath)) {
+            rcloneConfigPath = configPath;
+            break;
+          }
+        }
+      }
+      
+      if (!rcloneConfigPath) {
+        throw new Error('rclone.conf not found in any expected location');
+      }
+      
+      console.log(`Using rclone config at: ${rcloneConfigPath}`);
       let configContent = fs.readFileSync(rcloneConfigPath, 'utf8');
       
       // Replace the placeholder token with the real access token
@@ -232,13 +255,21 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       fs.writeFileSync(rcloneConfigPath, configContent);
       console.log('Updated rclone.conf with access token');
       
-      // Also update the user's rclone config
-      const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
-      fs.writeFileSync(userRcloneConfigPath, configContent);
-      console.log('Updated user rclone config with access token');
+      // Only update user's rclone config if not in production/Docker environment
+      if (!process.env.NODE_ENV || process.env.NODE_ENV !== 'production') {
+        try {
+          const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
+          fs.writeFileSync(userRcloneConfigPath, configContent);
+          console.log('Updated user rclone config with access token');
+        } catch (userConfigError) {
+          console.warn('Could not update user rclone config (this is normal in Docker):', userConfigError.message);
+        }
+      }
       
     } catch (error) {
       console.error('Failed to update rclone config:', error);
+      // Don't throw here - we still want to redirect to dashboard even if rclone config fails
+      console.warn('Continuing with authentication despite rclone config error...');
     }
 
     console.log('Authentication successful, redirecting to dashboard');
