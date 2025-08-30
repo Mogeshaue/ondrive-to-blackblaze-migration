@@ -18,7 +18,7 @@ const tokenManager = require('./server/services/tokenManager');
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || FRONTEND_URL;
-
+const MS_CLIENT_ID = process.env.MS_CLIENT_ID || '4a14fe09-2607-4da8-9427-fc81c9837777';
 // Allowed hosts for production
 const ALLOWED_HOSTS = [
   'localhost',
@@ -133,7 +133,7 @@ app.get('/health', (req, res) => {
 // Microsoft OAuth endpoints
 app.get('/api/auth/login', (req, res) => {
   const authUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/authorize?` +
-    `client_id=${process.env.MS_CLIENT_ID}&` +
+    `client_id=${MS_CLIENT_ID}&` +
     `response_type=code&` +
     `redirect_uri=${encodeURIComponent(process.env.MS_REDIRECT_URI || `${BASE_URL}/auth/microsoft/callback`)}&` +
     `scope=${encodeURIComponent('offline_access Files.Read.All')}&` +
@@ -160,7 +160,7 @@ app.get('/auth/microsoft/callback', async (req, res) => {
     
     // Exchange code for tokens
     const tokenResponse = await axios.post(`https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/token`, {
-      client_id: process.env.MS_CLIENT_ID,
+      client_id: MS_CLIENT_ID,
       client_secret: process.env.MS_CLIENT_SECRET,
       code,
       redirect_uri: process.env.MS_REDIRECT_URI || `${BASE_URL}/auth/microsoft/callback`,
@@ -281,7 +281,7 @@ const refreshAccessToken = async (userId) => {
     const refresh_token = decryptToken(userTokenData.refresh_token);
     
     const response = await axios.post(`https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/token`, {
-      client_id: process.env.MS_CLIENT_ID,
+      client_id: MS_CLIENT_ID,
       client_secret: process.env.MS_CLIENT_SECRET,
       refresh_token,
       grant_type: 'refresh_token'
