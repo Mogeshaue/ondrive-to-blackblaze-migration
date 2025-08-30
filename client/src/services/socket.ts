@@ -5,7 +5,12 @@ class SocketService {
 
   connect(): Socket {
     if (!this.socket) {
-      this.socket = io('http://localhost:3000', {
+      // Use relative path for production, falls back to same origin
+      const socketUrl = process.env.NODE_ENV === 'development' 
+        ? 'http://localhost:3000' 
+        : window.location.origin;
+        
+      this.socket = io(socketUrl, {
         withCredentials: true,
         transports: ['websocket', 'polling']
       });

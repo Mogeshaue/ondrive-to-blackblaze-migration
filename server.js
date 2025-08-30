@@ -86,12 +86,22 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'healthy', 
+    timestamp: new Date().toISOString(),
+    service: 'onedrive-migration-backend'
+  });
+});
+
 // Microsoft OAuth endpoints
 app.get('/api/auth/login', (req, res) => {
+  const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3000/auth/microsoft/callback';
   const authUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/authorize?` +
     `client_id=${process.env.MS_CLIENT_ID}&` +
     `response_type=code&` +
-    `redirect_uri=${encodeURIComponent('http://localhost:3000/auth/microsoft/callback')}&` +
+    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
     `scope=${encodeURIComponent('offline_access Files.Read.All')}&` +
     `response_mode=query&` +
     `prompt=select_account`;
@@ -115,11 +125,12 @@ app.get('/auth/microsoft/callback', async (req, res) => {
     console.log('Exchanging code for tokens...');
     
     // Exchange code for tokens
+    const redirectUri = process.env.MICROSOFT_REDIRECT_URI || 'http://localhost:3000/auth/microsoft/callback';
     const tokenResponse = await axios.post(`https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/token`, {
       client_id: process.env.MS_CLIENT_ID,
       client_secret: process.env.MS_CLIENT_SECRET,
       code,
-      redirect_uri: 'http://localhost:3000/auth/microsoft/callback',
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code'
     }, {
       headers: {
@@ -223,7 +234,8 @@ app.get('/api/auth/logout', (req, res) => {
     res.clearCookie('connect.sid');
     
     // Redirect to Microsoft logout URL to clear OAuth cache
-    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent('http://localhost:5173/login?logout=success&t=' + Date.now())}`;
+    const frontendUrl = process.env.CORS_ORIGIN || 'http://localhost:5173';
+    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(frontendUrl + '/login?logout=success&t=' + Date.now())}`;
     res.redirect(msLogoutUrl);
   });
 });
