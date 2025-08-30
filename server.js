@@ -24,7 +24,7 @@ const ALLOWED_HOSTS = [
   'localhost',
   '127.0.0.1',
   '10.1.76.125',
-  'files.iqube.kct.ac.in'
+  'files.iqubekct.ac.in'
 ];
 
 const app = express();
