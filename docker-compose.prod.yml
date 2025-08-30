@@ -32,10 +32,11 @@ services:
       dockerfile: Dockerfile
       args:
         - NODE_ENV=production
+        - VITE_BACKEND_URL=https://files.iqubekct.ac.in
     container_name: c2c-app-prod
     restart: always
     ports:
-      - "80:3000"
+      - "5173:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000

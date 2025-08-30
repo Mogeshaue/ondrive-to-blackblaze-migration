@@ -5,6 +5,10 @@ FROM node:18-alpine AS frontend-builder
 
 WORKDIR /app/client
 
+# Accept build arguments for frontend environment variables
+ARG VITE_BACKEND_URL
+ENV VITE_BACKEND_URL=$VITE_BACKEND_URL
+
 # Copy client package files
 COPY client/package*.json ./
 
