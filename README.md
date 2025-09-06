@@ -90,9 +90,17 @@ SESSION_SECRET=your_session_secret_key_here
 FRONTEND_URL=http://localhost:5173
 BACKEND_URL=http://localhost:3000
 
-# Rclone Configuration
-RCLONE_PATH=/usr/bin/rclone
-RCLONE_CONFIG_PATH=/path/to/rclone.conf
+# Rclone and Path Configuration
+# Path to the rclone executable. If not set, it's assumed to be in the system's PATH.
+RCLONE_PATH=
+# Path to the rclone configuration file.
+RCLONE_CONFIG_PATH=
+# Path to the directory for storing data files (like rclone.conf if not specified directly). Defaults to 'data'.
+DATA_PATH=
+# Path to the directory for storing log files. Defaults to 'logs'.
+LOGS_PATH=
+# Path to the directory for storing temporary files (like migration manifests). Defaults to 'temp'.
+TEMP_PATH=
 ```
 
 #### Update `rclone.conf` file:
@@ -169,7 +177,11 @@ The application will be available at the URLs specified in your `FRONTEND_URL` a
 | `SESSION_SECRET` | Session encryption key | Yes |
 | `FRONTEND_URL` | The URL of the frontend application | No (default: `http://localhost:5173`) |
 | `BACKEND_URL` | The URL of the backend application | No (default: `http://localhost:3000`) |
-| `RCLONE_PATH` | Path to Rclone executable | No |
+| `RCLONE_PATH` | Path to Rclone executable | No (defaults to `rclone` in PATH) |
+| `RCLONE_CONFIG_PATH` | Path to the rclone configuration file | No (defaults to `rclone.conf` in `DATA_PATH`) |
+| `DATA_PATH` | Directory for persistent data | No (defaults to `./data`) |
+| `LOGS_PATH` | Directory for log files | No (defaults to `./logs`) |
+| `TEMP_PATH` | Directory for temporary files | No (defaults to `./temp`) |
 
 ### Rclone Configuration
 

@@ -179,29 +179,8 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       console.error('❌ Failed to store tokens:', error.message);
     }
 
-    // Update rclone.conf with the access token
-    try {
-      const fs = require('fs');
-      const rcloneConfigPath = path.join(__dirname, 'rclone.conf');
-      let configContent = fs.readFileSync(rcloneConfigPath, 'utf8');
-      
-      // Replace the placeholder token with the real access token
-      configContent = configContent.replace(
-        /token = your_oauth_token_here/,
-        `token = ${access_token}`
-      );
-      
-      fs.writeFileSync(rcloneConfigPath, configContent);
-      console.log('Updated rclone.conf with access token');
-      
-      // Also update the user's rclone config
-      const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
-      fs.writeFileSync(userRcloneConfigPath, configContent);
-      console.log('Updated user rclone config with access token');
-      
-    } catch (error) {
-      console.error('Failed to update rclone config:', error);
-    }
+    // The rclone configuration is now handled by the migration service
+    // to support dynamic user-specific remotes.
 
     console.log('Authentication successful, redirecting to dashboard');
     res.redirect(`${FRONTEND_URL}/`);
@@ -260,29 +239,7 @@ const refreshAccessToken = async (userId) => {
     userTokenData.access_token = encryptedAccessToken;
     userTokenData.expires_at = Date.now() + (expires_in * 1000);
     
-    // Update rclone.conf with new access token
-    try {
-      const fs = require('fs');
-      const rcloneConfigPath = path.join(__dirname, 'rclone.conf');
-      let configContent = fs.readFileSync(rcloneConfigPath, 'utf8');
-      
-      // Replace the old token with the new access token
-      configContent = configContent.replace(
-        /token = [^\n]+/,
-        `token = ${access_token}`
-      );
-      
-      fs.writeFileSync(rcloneConfigPath, configContent);
-      console.log('Updated rclone.conf with refreshed access token');
-      
-      // Also update the user's rclone config
-      const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
-      fs.writeFileSync(userRcloneConfigPath, configContent);
-      console.log('Updated user rclone config with refreshed access token');
-      
-    } catch (error) {
-      console.error('Failed to update rclone config with refreshed token:', error);
-    }
+    // The rclone configuration is now handled by the migration service.
     
     return access_token;
   } catch (error) {
