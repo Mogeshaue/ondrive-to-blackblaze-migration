@@ -49,7 +49,7 @@ The setup script will:
 4. Fill in the details:
    - Name: "OneDrive to B2 Migration"
    - Supported account types: "Accounts in this organizational directory only"
-   - Redirect URI: "Web" → `http://localhost:3000/auth/microsoft/callback`
+   - Redirect URI: "Web" → `your_backend_url/auth/microsoft/callback` (e.g., `http://localhost:3000/auth/microsoft/callback`)
 5. After creation, note down:
    - Application (client) ID
    - Directory (tenant) ID
@@ -77,7 +77,6 @@ The setup script will:
 MS_CLIENT_ID=your_microsoft_client_id
 MS_CLIENT_SECRET=your_microsoft_client_secret
 MS_TENANT_ID=your_tenant_id
-MS_REDIRECT_URI=http://localhost:3000/auth/microsoft/callback
 
 # Backblaze B2 Configuration
 B2_APPLICATION_KEY_ID=your_b2_key_id
@@ -88,13 +87,12 @@ B2_BUCKET_NAME=your_b2_bucket_name
 PORT=3000
 NODE_ENV=development
 SESSION_SECRET=your_session_secret_key_here
+FRONTEND_URL=http://localhost:5173
+BACKEND_URL=http://localhost:3000
 
 # Rclone Configuration
 RCLONE_PATH=/usr/bin/rclone
 RCLONE_CONFIG_PATH=/path/to/rclone.conf
-
-# Security
-CORS_ORIGIN=http://localhost:5173
 ```
 
 #### Update `rclone.conf` file:
@@ -131,9 +129,9 @@ npm run build
 npm start
 ```
 
-The application will be available at:
-- Frontend: http://localhost:5173 (development) or http://localhost:3000 (production)
-- Backend API: http://localhost:3000
+The application will be available at the URLs specified in your `FRONTEND_URL` and `BACKEND_URL` environment variables.
+- Frontend: `FRONTEND_URL` (e.g., http://localhost:5173 for development)
+- Backend API: `BACKEND_URL` (e.g., http://localhost:3000 for development)
 
 ## 📖 Usage
 
@@ -164,14 +162,14 @@ The application will be available at:
 | `MS_CLIENT_ID` | Microsoft OAuth client ID | Yes |
 | `MS_CLIENT_SECRET` | Microsoft OAuth client secret | Yes |
 | `MS_TENANT_ID` | Microsoft tenant ID | Yes |
-| `MS_REDIRECT_URI` | OAuth callback URL | Yes |
 | `B2_APPLICATION_KEY_ID` | B2 application key ID | Yes |
 | `B2_APPLICATION_KEY` | B2 application key | Yes |
 | `B2_BUCKET_NAME` | B2 bucket name | Yes |
 | `PORT` | Server port | No (default: 3000) |
 | `SESSION_SECRET` | Session encryption key | Yes |
+| `FRONTEND_URL` | The URL of the frontend application | No (default: `http://localhost:5173`) |
+| `BACKEND_URL` | The URL of the backend application | No (default: `http://localhost:3000`) |
 | `RCLONE_PATH` | Path to Rclone executable | No |
-| `CORS_ORIGIN` | Frontend origin for CORS | No |
 
 ### Rclone Configuration
 
@@ -200,8 +198,9 @@ versions = false
 ### Common Issues
 
 1. **OAuth Redirect Error**
-   - Ensure the redirect URI in Azure matches exactly: `http://localhost:3000/auth/microsoft/callback`
-   - Check that the client ID and secret are correct
+   - Ensure the redirect URI in Azure matches your `BACKEND_URL` + `/auth/microsoft/callback`.
+   - Check that your `FRONTEND_URL` and `BACKEND_URL` environment variables are set correctly.
+   - Check that the client ID and secret are correct.
 
 2. **Rclone Not Found**
    - Ensure Rclone is installed and available in PATH
