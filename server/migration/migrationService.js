@@ -4,6 +4,13 @@ const path = require('path');
 const crypto = require('crypto');
 const axios = require('axios');
 const { getValidAccessTokenWithRefresh, loadTokens } = require('../services/tokenStorage');
+const { RCLONE_CONFIG_PATH } = require('./rcloneConfig');
+
+// Define and create paths for logs and temp files
+const LOGS_PATH = process.env.LOGS_PATH || path.join(process.cwd(), 'logs');
+const TEMP_PATH = process.env.TEMP_PATH || path.join(process.cwd(), 'temp');
+if (!fs.existsSync(LOGS_PATH)) fs.mkdirSync(LOGS_PATH, { recursive: true });
+if (!fs.existsSync(TEMP_PATH)) fs.mkdirSync(TEMP_PATH, { recursive: true });
 
 // Jobs storage
 const jobs = new Map(); // manifestId -> { status, startedAt, logFile, process }
@@ -72,17 +79,17 @@ async function ensureRcloneRemotes(userId) {
   console.log(`🔧 Ensuring rclone remotes for user: ${userId}`);
   
   try {
-    const configPath = path.join(__dirname, '../data/rclone.conf');
-    
-    if (!fs.existsSync(configPath)) {
-      throw new Error('Rclone config file not found');
+    if (!fs.existsSync(RCLONE_CONFIG_PATH)) {
+      // Create an empty config file if it doesn't exist, so we can write to it.
+      fs.writeFileSync(RCLONE_CONFIG_PATH, '');
+      console.log(`Created empty rclone config at: ${RCLONE_CONFIG_PATH}`);
     }
     
     // Get current valid access token
     const accessToken = await getValidAccessTokenWithRefresh(userId);
     
     // Read existing config
-    let configContent = fs.readFileSync(configPath, 'utf8');
+    let configContent = fs.readFileSync(RCLONE_CONFIG_PATH, 'utf8');
     
     // Update the OneDrive token with the current valid token
     // We need to construct the full token object that rclone expects
@@ -102,7 +109,7 @@ async function ensureRcloneRemotes(userId) {
       
       if (tokenRegex.test(configContent)) {
         configContent = configContent.replace(tokenRegex, newToken);
-        fs.writeFileSync(configPath, configContent);
+        fs.writeFileSync(RCLONE_CONFIG_PATH, configContent);
         console.log(`✅ Updated rclone config with fresh token`);
       } else {
         console.log(`⚠️ Could not find token in rclone config to update`);
@@ -125,7 +132,7 @@ async function ensureRcloneRemotes(userId) {
     return {
       onedriveRemote: 'onedrive',
       b2Remote: 'b2',
-      configPath: configPath
+      configPath: RCLONE_CONFIG_PATH
     };
     
   } catch (error) {
@@ -172,12 +179,12 @@ async function startMigration(userId, items, dstPrefix = '') {
     const remotes = await ensureRcloneRemotes(userId);
     
     // Step 4: Create manifest file
-    const manifestFile = path.join(__dirname, `${manifestId}.txt`);
+    const manifestFile = path.join(TEMP_PATH, `${manifestId}.txt`);
     fs.writeFileSync(manifestFile, items.join('\n'));
     console.log(`   Manifest file: ${manifestFile}`);
     
     // Step 5: Create log file
-    const logFile = path.join(__dirname, '../logs', `${manifestId}.log`);
+    const logFile = path.join(LOGS_PATH, `${manifestId}.log`);
     const logStream = fs.createWriteStream(logFile, { flags: 'a' });
     
     // Step 6: Build destination
@@ -377,11 +384,10 @@ async function testB2Connection() {
   console.log(`🧪 Testing B2 connection`);
   
   try {
-    const configPath = path.join(__dirname, '../data/rclone.conf');
     const rclonePath = process.env.RCLONE_PATH || 'rclone';
     
     const testOutput = require('child_process').execSync(
-      `"${rclonePath}" lsd "b2:" --config "${configPath}"`,
+      `"${rclonePath}" lsd "b2:" --config "${RCLONE_CONFIG_PATH}"`,
       { stdio: 'pipe' }
     );
     

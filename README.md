@@ -49,7 +49,7 @@ The setup script will:
 4. Fill in the details:
    - Name: "OneDrive to B2 Migration"
    - Supported account types: "Accounts in this organizational directory only"
-   - Redirect URI: "Web" → `http://localhost:3000/auth/microsoft/callback`
+   - Redirect URI: "Web" → `your_backend_url/auth/microsoft/callback` (e.g., `http://localhost:3000/auth/microsoft/callback`)
 5. After creation, note down:
    - Application (client) ID
    - Directory (tenant) ID
@@ -77,7 +77,6 @@ The setup script will:
 MS_CLIENT_ID=your_microsoft_client_id
 MS_CLIENT_SECRET=your_microsoft_client_secret
 MS_TENANT_ID=your_tenant_id
-MS_REDIRECT_URI=http://localhost:3000/auth/microsoft/callback
 
 # Backblaze B2 Configuration
 B2_APPLICATION_KEY_ID=your_b2_key_id
@@ -88,13 +87,20 @@ B2_BUCKET_NAME=your_b2_bucket_name
 PORT=3000
 NODE_ENV=development
 SESSION_SECRET=your_session_secret_key_here
+FRONTEND_URL=http://localhost:5173
+BACKEND_URL=http://localhost:3000
 
-# Rclone Configuration
-RCLONE_PATH=/usr/bin/rclone
-RCLONE_CONFIG_PATH=/path/to/rclone.conf
-
-# Security
-CORS_ORIGIN=http://localhost:5173
+# Rclone and Path Configuration
+# Path to the rclone executable. If not set, it's assumed to be in the system's PATH.
+RCLONE_PATH=
+# Path to the rclone configuration file.
+RCLONE_CONFIG_PATH=
+# Path to the directory for storing data files (like rclone.conf if not specified directly). Defaults to 'data'.
+DATA_PATH=
+# Path to the directory for storing log files. Defaults to 'logs'.
+LOGS_PATH=
+# Path to the directory for storing temporary files (like migration manifests). Defaults to 'temp'.
+TEMP_PATH=
 ```
 
 #### Update `rclone.conf` file:
@@ -131,9 +137,9 @@ npm run build
 npm start
 ```
 
-The application will be available at:
-- Frontend: http://localhost:5173 (development) or http://localhost:3000 (production)
-- Backend API: http://localhost:3000
+The application will be available at the URLs specified in your `FRONTEND_URL` and `BACKEND_URL` environment variables.
+- Frontend: `FRONTEND_URL` (e.g., http://localhost:5173 for development)
+- Backend API: `BACKEND_URL` (e.g., http://localhost:3000 for development)
 
 ## 📖 Usage
 
@@ -164,14 +170,18 @@ The application will be available at:
 | `MS_CLIENT_ID` | Microsoft OAuth client ID | Yes |
 | `MS_CLIENT_SECRET` | Microsoft OAuth client secret | Yes |
 | `MS_TENANT_ID` | Microsoft tenant ID | Yes |
-| `MS_REDIRECT_URI` | OAuth callback URL | Yes |
 | `B2_APPLICATION_KEY_ID` | B2 application key ID | Yes |
 | `B2_APPLICATION_KEY` | B2 application key | Yes |
 | `B2_BUCKET_NAME` | B2 bucket name | Yes |
 | `PORT` | Server port | No (default: 3000) |
 | `SESSION_SECRET` | Session encryption key | Yes |
-| `RCLONE_PATH` | Path to Rclone executable | No |
-| `CORS_ORIGIN` | Frontend origin for CORS | No |
+| `FRONTEND_URL` | The URL of the frontend application | No (default: `http://localhost:5173`) |
+| `BACKEND_URL` | The URL of the backend application | No (default: `http://localhost:3000`) |
+| `RCLONE_PATH` | Path to Rclone executable | No (defaults to `rclone` in PATH) |
+| `RCLONE_CONFIG_PATH` | Path to the rclone configuration file | No (defaults to `rclone.conf` in `DATA_PATH`) |
+| `DATA_PATH` | Directory for persistent data | No (defaults to `./data`) |
+| `LOGS_PATH` | Directory for log files | No (defaults to `./logs`) |
+| `TEMP_PATH` | Directory for temporary files | No (defaults to `./temp`) |
 
 ### Rclone Configuration
 
@@ -200,8 +210,9 @@ versions = false
 ### Common Issues
 
 1. **OAuth Redirect Error**
-   - Ensure the redirect URI in Azure matches exactly: `http://localhost:3000/auth/microsoft/callback`
-   - Check that the client ID and secret are correct
+   - Ensure the redirect URI in Azure matches your `BACKEND_URL` + `/auth/microsoft/callback`.
+   - Check that your `FRONTEND_URL` and `BACKEND_URL` environment variables are set correctly.
+   - Check that the client ID and secret are correct.
 
 2. **Rclone Not Found**
    - Ensure Rclone is installed and available in PATH

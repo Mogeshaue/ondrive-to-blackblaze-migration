@@ -2,7 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const { getValidAccessTokenWithRefresh } = require('../services/tokenStorage');
 
-const RCLONE_CONFIG_PATH = path.join(__dirname, '../data/rclone.conf');
+// Use environment variables for paths, with sensible defaults
+const DATA_PATH = process.env.DATA_PATH || path.join(process.cwd(), 'data');
+const RCLONE_CONFIG_PATH = process.env.RCLONE_CONFIG_PATH || path.join(DATA_PATH, 'rclone.conf');
 
 // Ensure data directory exists
 const dataDir = path.dirname(RCLONE_CONFIG_PATH);

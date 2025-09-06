@@ -16,9 +16,13 @@ const tokenManager = require('./server/services/tokenManager');
 
 const app = express();
 const server = createServer(app);
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:3000';
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+    origin: FRONTEND_URL,
     methods: ["GET", "POST"]
   }
 });
@@ -26,7 +30,7 @@ const io = new Server(server, {
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || "http://localhost:5173",
+  origin: FRONTEND_URL,
   credentials: true
 }));
 
@@ -88,10 +92,11 @@ const requireAuth = (req, res, next) => {
 
 // Microsoft OAuth endpoints
 app.get('/api/auth/login', (req, res) => {
+  const redirectUri = `${BACKEND_URL}/auth/microsoft/callback`;
   const authUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/authorize?` +
     `client_id=${process.env.MS_CLIENT_ID}&` +
     `response_type=code&` +
-    `redirect_uri=${encodeURIComponent('http://localhost:3000/auth/microsoft/callback')}&` +
+    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
     `scope=${encodeURIComponent('offline_access Files.Read.All')}&` +
     `response_mode=query&` +
     `prompt=select_account`;
@@ -104,22 +109,23 @@ app.get('/auth/microsoft/callback', async (req, res) => {
   
   if (error) {
     console.error('OAuth error:', error);
-    return res.redirect('http://localhost:5173/login?error=oauth_error');
+    return res.redirect(`${FRONTEND_URL}/login?error=oauth_error`);
   }
   
       if (!code) {
-      return res.redirect('http://localhost:5173/login?error=no_code');
+      return res.redirect(`${FRONTEND_URL}/login?error=no_code`);
     }
 
   try {
     console.log('Exchanging code for tokens...');
     
     // Exchange code for tokens
+    const redirectUri = `${BACKEND_URL}/auth/microsoft/callback`;
     const tokenResponse = await axios.post(`https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/token`, {
       client_id: process.env.MS_CLIENT_ID,
       client_secret: process.env.MS_CLIENT_SECRET,
       code,
-      redirect_uri: 'http://localhost:3000/auth/microsoft/callback',
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code'
     }, {
       headers: {
@@ -173,35 +179,14 @@ app.get('/auth/microsoft/callback', async (req, res) => {
       console.error('❌ Failed to store tokens:', error.message);
     }
 
-    // Update rclone.conf with the access token
-    try {
-      const fs = require('fs');
-      const rcloneConfigPath = path.join(__dirname, 'rclone.conf');
-      let configContent = fs.readFileSync(rcloneConfigPath, 'utf8');
-      
-      // Replace the placeholder token with the real access token
-      configContent = configContent.replace(
-        /token = your_oauth_token_here/,
-        `token = ${access_token}`
-      );
-      
-      fs.writeFileSync(rcloneConfigPath, configContent);
-      console.log('Updated rclone.conf with access token');
-      
-      // Also update the user's rclone config
-      const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
-      fs.writeFileSync(userRcloneConfigPath, configContent);
-      console.log('Updated user rclone config with access token');
-      
-    } catch (error) {
-      console.error('Failed to update rclone config:', error);
-    }
+    // The rclone configuration is now handled by the migration service
+    // to support dynamic user-specific remotes.
 
     console.log('Authentication successful, redirecting to dashboard');
-    res.redirect('http://localhost:5173/');
+    res.redirect(`${FRONTEND_URL}/`);
   } catch (error) {
     console.error('OAuth callback error:', error.response?.data || error.message);
-    res.redirect('http://localhost:5173/login?error=auth_failed');
+    res.redirect(`${FRONTEND_URL}/login?error=auth_failed`);
   }
 });
 
@@ -223,7 +208,8 @@ app.get('/api/auth/logout', (req, res) => {
     res.clearCookie('connect.sid');
     
     // Redirect to Microsoft logout URL to clear OAuth cache
-    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent('http://localhost:5173/login?logout=success&t=' + Date.now())}`;
+    const postLogoutRedirectUri = `${FRONTEND_URL}/login?logout=success&t=${Date.now()}`;
+    const msLogoutUrl = `https://login.microsoftonline.com/${process.env.MS_TENANT_ID}/oauth2/v2.0/logout?post_logout_redirect_uri=${encodeURIComponent(postLogoutRedirectUri)}`;
     res.redirect(msLogoutUrl);
   });
 });
@@ -253,29 +239,7 @@ const refreshAccessToken = async (userId) => {
     userTokenData.access_token = encryptedAccessToken;
     userTokenData.expires_at = Date.now() + (expires_in * 1000);
     
-    // Update rclone.conf with new access token
-    try {
-      const fs = require('fs');
-      const rcloneConfigPath = path.join(__dirname, 'rclone.conf');
-      let configContent = fs.readFileSync(rcloneConfigPath, 'utf8');
-      
-      // Replace the old token with the new access token
-      configContent = configContent.replace(
-        /token = [^\n]+/,
-        `token = ${access_token}`
-      );
-      
-      fs.writeFileSync(rcloneConfigPath, configContent);
-      console.log('Updated rclone.conf with refreshed access token');
-      
-      // Also update the user's rclone config
-      const userRcloneConfigPath = path.join(process.env.USERPROFILE || process.env.HOME, 'AppData', 'Roaming', 'rclone', 'rclone.conf');
-      fs.writeFileSync(userRcloneConfigPath, configContent);
-      console.log('Updated user rclone config with refreshed access token');
-      
-    } catch (error) {
-      console.error('Failed to update rclone config with refreshed token:', error);
-    }
+    // The rclone configuration is now handled by the migration service.
     
     return access_token;
   } catch (error) {
@@ -604,8 +568,8 @@ app.listen(PORT, () => {
   tokenManager.start();
   
   console.log('✅ OneDrive to B2 Migration Server is ready!');
-  console.log(`   - Frontend: http://localhost:5173`);
-  console.log(`   - Backend: http://localhost:${PORT}`);
+  console.log(`   - Frontend: ${FRONTEND_URL}`);
+  console.log(`   - Backend: ${BACKEND_URL}`);
   console.log(`   - Token Manager: Active`);
 });
 
